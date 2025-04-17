@@ -98,7 +98,7 @@ These are passed as SWITCHES parameters to `eat-make`."
   "Keymap for Claude commands.")
 
 ;;;; Transient Menus
-;;;###autoload
+;;;###autoload (autoload 'claude-code-transient "claude-code" nil t)
 (transient-define-prefix claude-code-transient ()
   "Claude command menu."
   ["Claude Commands"
@@ -114,7 +114,7 @@ These are passed as SWITCHES parameters to `eat-make`."
     ("n" "Send <escape> to Claude (\"No\")" claude-code-send-escape)
     ("/" "Slash Commands" claude-code-slash-commands)]])
 
-;;;###autoload
+;;;###autoload (autoload 'claude-code-slash-commands "claude-code" nil t)
 (transient-define-prefix claude-code-slash-commands ()
   "Claude slash commands menu."
   ["Slash Commands"
