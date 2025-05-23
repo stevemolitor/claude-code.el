@@ -20,9 +20,12 @@
 ;; Declare external variables and functions from eat package
 (defvar eat--semi-char-mode)
 (defvar eat-terminal)
+(defvar eat--synchronize-scroll-function)
 (declare-function eat-term-reset "eat" (terminal))
 (declare-function eat-term-redisplay "eat" (terminal))
 (declare-function eat--set-cursor "eat" (terminal &rest args))
+(declare-function eat-term-display-cursor "eat" (terminal))
+(declare-function eat-term-display-beginning "eat" (terminal))
 
 ;;;; Customization options
 (defgroup claude-code nil
@@ -245,6 +248,35 @@ for consistent appearance."
   (face-remap-add-relative 'nobreak-space :underline nil)
   (face-remap-add-relative 'eat-term-faint :foreground "#999999" :weight 'light))
 
+(defun claude-code--synchronize-scroll (windows)
+  "Synchronize scrolling and point between terminal and WINDOWS.
+
+WINDOWS is a list of windows.  WINDOWS may also contain the special
+symbol `buffer', in which case the point of current buffer is set.
+
+This custom version keeps the prompt at the bottom of the window when
+possible, preventing the scrolling up issue when editing other buffers."
+  (dolist (window windows)
+    (if (eq window 'buffer)
+        (goto-char (eat-term-display-cursor eat-terminal))
+      ;; Instead of always setting window-start to the beginning,
+      ;; keep the prompt at the bottom of the window when possible
+      (let ((cursor-pos (eat-term-display-cursor eat-terminal))
+            (term-beginning (eat-term-display-beginning eat-terminal)))
+        ;; Set point first
+        (set-window-point window cursor-pos)
+        ;; Check if we should keep the prompt at the bottom
+        (when (and (>= cursor-pos (- (point-max) 2))
+                   (not (pos-visible-in-window-p cursor-pos window)))
+          ;; Recenter with point at bottom of window
+          (with-selected-window window
+            (save-excursion
+              (goto-char cursor-pos)
+              (recenter -1))))
+        ;; Otherwise, only adjust window-start if cursor is not visible
+        (unless (pos-visible-in-window-p cursor-pos window)
+          (set-window-start window term-beginning))))))
+
 (defun claude-code--start (dir &optional arg continue)
   "Start Claude in directory DIR.
 
@@ -266,6 +298,8 @@ conversation."
       (let ((process-adaptive-read-buffering nil))
         (apply #'eat-make "claude" claude-code-program nil program-switches))
       (claude-code--setup-repl-faces)
+      ;; Set our custom synchronize scroll function
+      (setq-local eat--synchronize-scroll-function #'claude-code--synchronize-scroll)
       (run-hooks 'claude-code-start-hook)
 
       ;; fix wonky initial terminal layout that happens sometimes if we show the buffer before claude is ready
