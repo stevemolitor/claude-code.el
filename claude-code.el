@@ -277,6 +277,21 @@ possible, preventing the scrolling up issue when editing other buffers."
         (unless (pos-visible-in-window-p cursor-pos window)
           (set-window-start window term-beginning))))))
 
+(defun claude-code--on-window-configuration-change ()
+  "Handle window configuration changes for Claude buffer.
+
+Ensures the Claude buffer stays scrolled to the bottom when window
+configuration changes (e.g., when minibuffer opens/closes)."
+  (when (and (eq (current-buffer) (get-buffer "*claude*"))
+             (derived-mode-p 'eat-mode))
+    ;; Get all windows showing the Claude buffer
+    (let ((windows (get-buffer-window-list (current-buffer) nil t)))
+      (dolist (window windows)
+        ;; Move to end of buffer to show latest output
+        (with-selected-window window
+          (goto-char (point-max))
+          (recenter -1))))))
+
 (defun claude-code--start (dir &optional arg continue)
   "Start Claude in directory DIR.
 
@@ -300,6 +315,8 @@ conversation."
       (claude-code--setup-repl-faces)
       ;; Set our custom synchronize scroll function
       (setq-local eat--synchronize-scroll-function #'claude-code--synchronize-scroll)
+      ;; Add window configuration change hook to keep buffer scrolled to bottom
+      (add-hook 'window-configuration-change-hook #'claude-code--on-window-configuration-change nil t)
       (run-hooks 'claude-code-start-hook)
 
       ;; fix wonky initial terminal layout that happens sometimes if we show the buffer before claude is ready
