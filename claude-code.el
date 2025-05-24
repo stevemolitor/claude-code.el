@@ -293,15 +293,12 @@ possible, preventing the scrolling up issue when editing other buffers."
 
 Ensures the Claude buffer stays scrolled to the bottom when window
 configuration changes (e.g., when minibuffer opens/closes)."
-  (when (and (eq (current-buffer) (claude-code--get-claude-buffer))
-             (derived-mode-p 'eat-mode))
-    ;; Get all windows showing the Claude buffer
-    (let ((windows (get-buffer-window-list (current-buffer) nil t)))
-      (dolist (window windows)
-        ;; Move to end of buffer to show latest output
-        (with-selected-window window
-          (goto-char (point-max))
-          (recenter -1))))))
+  (when-let ((claude-buffer (claude-code--get-claude-buffer)))
+    (with-current-buffer claude-buffer
+      ;; Get all windows showing the Claude buffer
+      (let ((windows (get-buffer-window-list claude-buffer nil t)))
+        (when windows
+          (claude-code--synchronize-scroll windows))))))
 
 (defun claude-code--start (dir &optional arg continue)
   "Start Claude in directory DIR.
