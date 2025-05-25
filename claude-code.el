@@ -20,9 +20,12 @@
 ;; Declare external variables and functions from eat package
 (defvar eat--semi-char-mode)
 (defvar eat-terminal)
+(defvar eat--synchronize-scroll-function)
 (declare-function eat-term-reset "eat" (terminal))
 (declare-function eat-term-redisplay "eat" (terminal))
 (declare-function eat--set-cursor "eat" (terminal &rest args))
+(declare-function eat-term-display-cursor "eat" (terminal))
+(declare-function eat-term-display-beginning "eat" (terminal))
 
 ;;;; Customization options
 (defgroup claude-code nil
@@ -124,6 +127,9 @@ BLINKING-FREQUENCY can be nil (no blinking) or a number."
            (const :tag "None" nil)))
   :group 'claude-code)
 
+(defvar claude-code--claude-buffer "*claude*"
+  "Name of the Claude buffer.")
+
 ;; Forward declare variables to avoid compilation warnings
 (defvar eat-terminal)
 (defvar eat-term-name)
@@ -210,11 +216,19 @@ BLINKING-FREQUENCY can be nil (no blinking) or a number."
    ])
 
 ;;;; Private util functions
+(defun claude-code--get-claude-buffer ()
+  "Return the Claude buffer if it exists, nil otherwise."
+  (get-buffer claude-code--claude-buffer))
+
+(defun claude-code--switch-to-claude-buffer ()
+  "Switch to the Claude buffer."
+  (switch-to-buffer claude-code--claude-buffer))
+
 (defun claude-code--do-send-command (cmd)
   "Send a command CMD to Claude if Claude buffer exists.
 
 After sending the command, move point to the end of the buffer."
-  (if-let ((claude-code-buffer (get-buffer "*claude*")))
+  (if-let ((claude-code-buffer (claude-code--get-claude-buffer)))
       (with-current-buffer claude-code-buffer
         (eat-term-send-string eat-terminal cmd)
         (eat-term-send-string eat-terminal (kbd "RET"))
@@ -245,6 +259,46 @@ for consistent appearance."
   (face-remap-add-relative 'nobreak-space :underline nil)
   (face-remap-add-relative 'eat-term-faint :foreground "#999999" :weight 'light))
 
+(defun claude-code--synchronize-scroll (windows)
+  "Synchronize scrolling and point between terminal and WINDOWS.
+
+WINDOWS is a list of windows.  WINDOWS may also contain the special
+symbol `buffer', in which case the point of current buffer is set.
+
+This custom version keeps the prompt at the bottom of the window when
+possible, preventing the scrolling up issue when editing other buffers."
+  (dolist (window windows)
+    (if (eq window 'buffer)
+        (goto-char (eat-term-display-cursor eat-terminal))
+      ;; Instead of always setting window-start to the beginning,
+      ;; keep the prompt at the bottom of the window when possible
+      (let ((cursor-pos (eat-term-display-cursor eat-terminal))
+            (term-beginning (eat-term-display-beginning eat-terminal)))
+        ;; Set point first
+        (set-window-point window cursor-pos)
+        ;; Check if we should keep the prompt at the bottom
+        (when (and (>= cursor-pos (- (point-max) 2))
+                   (not (pos-visible-in-window-p cursor-pos window)))
+          ;; Recenter with point at bottom of window
+          (with-selected-window window
+            (save-excursion
+              (goto-char cursor-pos)
+              (recenter -1))))
+        ;; Otherwise, only adjust window-start if cursor is not visible
+        (unless (pos-visible-in-window-p cursor-pos window)
+          (set-window-start window term-beginning))))))
+
+(defun claude-code--on-window-configuration-change ()
+  "Handle window configuration changes for Claude buffer.
+
+Ensures the Claude buffer stays scrolled to the bottom when window all
+configuration changes (e.g., when minibuffer opens/closes)."
+  (when-let ((claude-buffer (claude-code--get-claude-buffer)))
+    (with-current-buffer claude-buffer
+      ;; Get all windows showing the Claude buffer
+      (if-let ((windows (get-buffer-window-list claude-buffer nil t)))
+        (claude-code--synchronize-scroll windows)))))
+
 (defun claude-code--start (dir &optional arg continue)
   "Start Claude in directory DIR.
 
@@ -255,17 +309,21 @@ conversation."
   (require 'eat)
   
   (let* ((default-directory dir)
-         (buffer (get-buffer-create "*claude*"))
+         (buffer (get-buffer-create claude-code--claude-buffer))
          (program-switches (if continue
                               (append claude-code-program-switches '("--continue"))
                             claude-code-program-switches)))
     (with-current-buffer buffer
       (cd dir)
-      (setq-local eat-invisible-cursor-type claude-code-read-only-mode-cursor-type)
+      ;; (setq-local eat-invisible-cursor-type claude-code-read-only-mode-cursor-type)
       (setq-local eat-term-name claude-code-term-name)
       (let ((process-adaptive-read-buffering nil))
         (apply #'eat-make "claude" claude-code-program nil program-switches))
       (claude-code--setup-repl-faces)
+      ;; Set our custom synchronize scroll function
+      (setq-local eat--synchronize-scroll-function #'claude-code--synchronize-scroll)
+      ;; Add window configuration change hook to keep buffer scrolled to bottom
+      (add-hook 'window-configuration-change-hook #'claude-code--on-window-configuration-change nil t)
       (run-hooks 'claude-code-start-hook)
 
       ;; fix wonky initial terminal layout that happens sometimes if we show the buffer before claude is ready
@@ -349,7 +407,7 @@ switch to Claude buffer."
     (when full-text
       (claude-code--do-send-command full-text)
       (when (equal arg '(16)) ; Only switch buffer with C-u C-u
-        (switch-to-buffer "*claude*")))))
+        (claude-code--switch-to-claude-buffer)))))
 
 ;;;###autoload
 (defun claude-code-current-directory (&optional arg)
@@ -367,7 +425,7 @@ With double prefix ARG (C-u C-u), continue previous conversation."
 
 If the Claude buffer doesn't exist, create it."
   (interactive)
-  (let ((claude-code-buffer (get-buffer "*claude*")))
+  (let ((claude-code-buffer (claude-code--get-claude-buffer)))
     (if claude-code-buffer
         (if (get-buffer-window claude-code-buffer)
             (delete-window (get-buffer-window claude-code-buffer))
@@ -378,15 +436,15 @@ If the Claude buffer doesn't exist, create it."
 (defun claude-code-switch-to-buffer ()
   "Switch to the Claude buffer if it exists."
   (interactive)
-  (if-let ((claude-code-buffer (get-buffer "*claude*")))
-      (switch-to-buffer claude-code-buffer)
+  (if-let ((claude-code-buffer (claude-code--get-claude-buffer)))
+      (claude-code--switch-to-claude-buffer)
     (error "Claude is not running")))
 
 ;;;###autoload
 (defun claude-code-kill ()
   "Kill Claude process and close its window."
   (interactive)
-  (if-let ((claude-code-buffer (get-buffer "*claude*")))
+  (if-let ((claude-code-buffer (claude-code--get-claude-buffer)))
       (progn (with-current-buffer claude-code-buffer
                (eat-kill-process)
                (kill-buffer claude-code-buffer))
@@ -401,7 +459,7 @@ With prefix ARG, switch to the Claude buffer after sending CMD."
   (interactive "sClaude command: \nP")
   (claude-code--do-send-command cmd)
   (when arg
-    (switch-to-buffer "*claude*")))
+    (claude-code--switch-to-claude-buffer)))
 
 ;;;###autoload
 (defun claude-code-send-command-with-context (cmd &optional arg)
@@ -425,7 +483,7 @@ With prefix ARG, switch to the Claude buffer after sending CMD."
                              cmd)))
     (claude-code--do-send-command cmd-with-context)
     (when arg
-      (switch-to-buffer "*claude*"))))
+      (claude-code--switch-to-claude-buffer))))
 
 ;;;###autoload
 (defun claude-code-send-return ()
@@ -443,7 +501,7 @@ having to switch to the REPL buffer."
 This is useful for saying \"No\" when Claude asks for confirmation without
 having to switch to the REPL buffer."
   (interactive)
-  (if-let ((claude-code-buffer (get-buffer "*claude*")))
+  (if-let ((claude-code-buffer (claude-code--get-claude-buffer)))
       (with-current-buffer claude-code-buffer
         (eat-term-send-string eat-terminal (kbd "ESC"))
         (display-buffer claude-code-buffer))
@@ -472,7 +530,7 @@ With prefix ARG, switch to the Claude buffer after sending."
                              file-name error-text)))
         (claude-code--do-send-command command)
         (when arg
-          (switch-to-buffer "*claude*"))))))
+          (claude-code--switch-to-claude-buffer))))))
 
 ;;;###autoload
 (defun claude-code-read-only-mode ()
@@ -485,7 +543,7 @@ enter Claude commands.
 
 Use `claude-code-exit-read-only-mode' to switch back to normal mode."
   (interactive)
-  (if-let ((claude-code-buffer (get-buffer "*claude*")))
+  (if-let ((claude-code-buffer (claude-code--get-claude-buffer)))
       (with-current-buffer claude-code-buffer
         (eat-emacs-mode)
         (setq-local eat-invisible-cursor-type claude-code-read-only-mode-cursor-type)
@@ -497,7 +555,7 @@ Use `claude-code-exit-read-only-mode' to switch back to normal mode."
 (defun claude-code-exit-read-only-mode ()
   "Exit read-only mode and return to normal mode (eat semi-char mode)."
   (interactive)
-  (if-let ((claude-code-buffer (get-buffer "*claude*")))
+  (if-let ((claude-code-buffer (claude-code--get-claude-buffer)))
       (with-current-buffer claude-code-buffer
         (eat-semi-char-mode)
         (setq-local eat-invisible-cursor-type nil)
@@ -514,7 +572,7 @@ regular buffer. This mode is useful for selecting text in the Claude
 buffer. However, you are not allowed to change the buffer contents or
 enter Claude commands."
   (interactive)
-  (if-let ((claude-code-buffer (get-buffer "*claude*")))
+  (if-let ((claude-code-buffer (claude-code--get-claude-buffer)))
       (with-current-buffer claude-code-buffer
         (if eat--semi-char-mode
             (claude-code-read-only-mode)

@@ -2,6 +2,11 @@
 
 All notable changes to claude-code.el will be documented in this file.
 
+## [0.2.3] - 2025-05-23
+
+### Fixed
+- Fixed Claude buffer jumping to top when editing in other windows (#8)
+
 ## [0.2.2] - 2025-05-22
 
 ### Added
