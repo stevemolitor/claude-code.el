@@ -16,7 +16,6 @@
 (require 'transient)
 (require 'project)
 (require 'cl-lib)
-(require 'vc-git)
 
 ;; Declare external variables and functions from eat package
 (defvar eat--semi-char-mode)
@@ -214,7 +213,7 @@ BLINKING-FREQUENCY can be nil (no blinking) or a number."
 (defun claude-code--buffer-name ()
   "Generate the Claude buffer name based on git repo or current buffer file path.
 If not in a git repository and no buffer file exists, returns default name."
-  (let ((git-repo-path (vc-git-root default-directory))
+  (let ((git-repo-path (project-root (project-current t)))
         (current-file (buffer-file-name)))
     (cond
      ;; Case 1: Valid git repo path
