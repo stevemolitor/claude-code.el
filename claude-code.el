@@ -315,7 +315,7 @@ conversation."
                             claude-code-program-switches)))
     (with-current-buffer buffer
       (cd dir)
-      (setq-local eat-invisible-cursor-type claude-code-read-only-mode-cursor-type)
+      ;; (setq-local eat-invisible-cursor-type claude-code-read-only-mode-cursor-type)
       (setq-local eat-term-name claude-code-term-name)
       (let ((process-adaptive-read-buffering nil))
         (apply #'eat-make "claude" claude-code-program nil program-switches))
