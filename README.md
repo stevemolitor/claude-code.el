@@ -5,6 +5,7 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 ## Features
 
 - Start, stop, and toggle Claude Code sessions directly from Emacs
+- Support for multiple Claude instances across different projects and directories
 - Send commands to Claude with or without file/line context
 - Quick access to all Claude slash commands via transient menus
 - Customizable key bindings and appearance settings
@@ -44,8 +45,7 @@ You need to set your own key binding for the Claude Code command map. The exampl
 
 ### Basic Commands
 
-- `claude-code` (`C-c c c`) - Start Claude in the current project root
-- `claude-code-current-directory` (`C-c c d`) - Start Claude in the current directory
+- `claude-code` (`C-c c c`) - Start Claude 
 - `claude-code-toggle` (`C-c c t`) - Toggle Claude window
 - `claude-code-switch-to-buffer` (`C-c c b`) - Switch to the Claude buffer
 - `claude-code-kill` (`C-c c k`) - Kill Claude session
@@ -59,7 +59,11 @@ You need to set your own key binding for the Claude Code command map. The exampl
 - `claude-code-send-escape` (`C-c c n`) - Send escape key to Claude (useful for saying "No" when Claude asks for confirmation without switching to the Claude REPL buffer)
 - `claude-code-fork` (`C-c c f`) - Fork conversation (jump to previous conversation by sending escape-escape to Claude)
 
-With a prefix arg, `claude-code`, `claude-code-current-directory`, `claude-code-send-command` and `claude-code-send-command-with-context` will switch to the Claude terminal buffer after sending the command.
+With a single prefix arg, `claude-code`, `claude-code-send-command` and
+`claude-code-send-command-with-context` will switch to the Claude terminal buffer after sending the
+command.
+
+
 
 ### Read-Only Mode Toggle
 
@@ -75,10 +79,10 @@ The command automatically detects the current mode and switches to the other:
 
 ### Continuing Previous Conversations
 
-The `claude-code` and `claude-code-current-directory` commands support continuing previous conversations using Claude's `--continue` flag:
+The `claude-code` command supports continuing previous conversations using Claude's `--continue`
+flag:
 
 - Double prefix arg (`C-u C-u C-c c c`) - Start Claude in project root and continue previous conversation
-- Double prefix arg (`C-u C-u C-c c d`) - Start Claude in current directory and continue previous conversation
 
 This allows you to resume where you left off in your previous Claude session.
 
@@ -89,6 +93,35 @@ Access all commands through the transient menu with `C-c c m`.
 #### Slash Commands Menu
 
 For quick access to Claude slash commands like `/help`, `/clear`, or `/compact`, use `C-c c /` to open the slash commands menu.
+
+### Read-Only Mode for Text Selection
+
+In the Claude terminal, you can switch to a read-only mode to select and copy text:
+
+- `C-c C-e` (`eat-emacs-mode`) - Switch to read-only mode with normal Emacs cursor for text selection
+- `C-c C-j` (`semi-char-mode`) - Return to normal terminal mode
+
+The cursor appearance in read-only mode can be customized via the `claude-code-read-only-mode-cursor-type` variable:
+
+```elisp
+;; Customize cursor type in read-only mode (default is 'box)
+;; Options: 'box, 'hollow, 'bar, 'hbar, or nil
+(setq claude-code-read-only-mode-cursor-type 'bar)
+```
+
+### Multiple Claude Instances
+
+`claude-code.el` supports running multiple Claude instances across different projects and directories. Each Claude instance is associated with a specific directory (project root, file directory, or current directory).
+
+#### Instance Management
+
+- When you start Claude with `claude-code`, it creates an instance for the current directory
+- Buffer names follow the format `*claude:/path/to/directory*` to clearly identify each instance
+- If you're in a directory without a Claude instance but have instances running in other directories, you'll be prompted to select one
+- Your selection is remembered for that directory, so you won't be prompted again
+- To start a new instance instead of selecting an existing one, cancel the prompt with `C-g`
+
+This allows you to have separate Claude conversations for different projects while easily switching between them or sharing a Claude instance across related directories.
 
 ## Customization
 
@@ -128,7 +161,7 @@ You can control how the Claude Code window appears using Emacs' `display-buffer-
 
 ```elisp
 (add-to-list 'display-buffer-alist
-             '("^\\*claude\\*"
+             '("^\\*claude"
                (display-buffer-in-side-window)
                (side . right)
                (window-width . 0.33)))
@@ -143,9 +176,6 @@ Using a font with good Unicode support helps avoid flickering while Claude Code 
 ```elisp
 (setq use-default-font-for-symbols nil)
 (set-fontset-font t 'unicode (font-spec :family "JuliaMono"))
-
-;; for emoji characters on MacOS
-(set-fontset-font t 'unicode (font-spec :family "Apple Color Emoji") nil 'append)
 ```
 
 If instead you want to use a particular font just for the Claude Code REPL but use a different font
@@ -182,24 +212,8 @@ This [demo](./demo.gif) shows claude-code.el in action, including toggling the C
 
 Check out this [video demo](https://www.youtube.com/watch?v=K8sCVLmFyyU) demonstrating the claude-code.el package. This video was kindly created and shared by a user of the package.
 
-### Read-Only Mode for Text Selection
-
-In the Claude terminal, you can switch to a read-only mode to select and copy text:
-
-- `C-c C-e` (`eat-emacs-mode`) - Switch to read-only mode with normal Emacs cursor for text selection
-- `C-c C-j` (`semi-char-mode`) - Return to normal terminal mode
-
-The cursor appearance in read-only mode can be customized via the `claude-code-read-only-mode-cursor-type` variable:
-
-```elisp
-;; Customize cursor type in read-only mode (default is 'box)
-;; Options: 'box, 'hollow, 'bar, 'hbar, or nil
-(setq claude-code-read-only-mode-cursor-type 'bar)
-```
-
 ## Limitations
 
-- Currently, `claude-code.el` only supports running one Claude Code process at a time.
 - `claude-code.el` only supports using [eat](https://codeberg.org/akib/emacs-eat) for the Claude Code terminal window. Eat provides better rendering with less flickering and visual artifacts compared to other terminal emulators like ansi-term and vterm in testing.
 
 ## Contributing
