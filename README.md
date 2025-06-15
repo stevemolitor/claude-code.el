@@ -101,12 +101,12 @@ In the Claude terminal, you can switch to a read-only mode to select and copy te
 - `C-c C-e` (`eat-emacs-mode`) - Switch to read-only mode with normal Emacs cursor for text selection
 - `C-c C-j` (`semi-char-mode`) - Return to normal terminal mode
 
-The cursor appearance in read-only mode can be customized via the `claude-code-read-only-mode-cursor-type` variable:
+The cursor appearance in read-only mode can be customized via the `claude-code-read-only-mode-cursor-type` variable. This variable uses the format `(CURSOR-ON BLINKING-FREQUENCY CURSOR-OFF)`. For more information, run `M-x describe-variable RET claude-code-read-only-mode-cursor-type RET`.
 
 ```elisp
-;; Customize cursor type in read-only mode (default is 'box)
-;; Options: 'box, 'hollow, 'bar, 'hbar, or nil
-(setq claude-code-read-only-mode-cursor-type 'bar)
+;; Customize cursor type in read-only mode (default is '(box nil nil))
+;; Cursor type options: 'box, 'hollow, 'bar, 'hbar, or nil
+(setq claude-code-read-only-mode-cursor-type '(bar nil nil))
 ```
 
 ### Multiple Claude Instances
