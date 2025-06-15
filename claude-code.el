@@ -387,6 +387,18 @@ If not in a project and no buffer file, raise an error."
   "Show a message that Claude is not running in any directory."
   (message "Claude is not running"))
 
+(defun claude-code--kill-buffer (buffer)
+  "Kill a Claude BUFFER by cleaning up hooks and processes.
+
+This function handles the proper cleanup sequence for a Claude buffer:
+1. Remove the window configuration change hook
+2. Kill the eat process
+3. Kill the buffer"
+  (with-current-buffer buffer
+    (remove-hook 'window-configuration-change-hook #'claude-code--on-window-configuration-change t)
+    (eat-kill-process)
+    (kill-buffer buffer)))
+
 (defun claude-code--cleanup-directory-mapping ()
   "Remove entries from directory-buffer map when this buffer is killed.
    
@@ -711,21 +723,18 @@ With prefix ARG, kill ALL Claude processes across all directories."
       ;; Kill all Claude instances
       (let ((all-buffers (claude-code--find-all-claude-buffers)))
         (if all-buffers
-            (progn
-              (dolist (buffer all-buffers)
-                (with-current-buffer buffer
-                  (eat-kill-process)
-                  (kill-buffer buffer)))
-              (message "Killed %d Claude instance%s"
-                       (length all-buffers)
-                       (if (= (length all-buffers) 1) "" "s")))
+            (let* ((buffer-count (length all-buffers))
+                   (plural-suffix (if (= buffer-count 1) "" "s")))
+              (when (yes-or-no-p (format "Kill %d Claude instance%s? " buffer-count plural-suffix))
+                (dolist (buffer all-buffers)
+                  (claude-code--kill-buffer buffer))
+                (message "%d Claude instance%s killed" buffer-count plural-suffix)))
           (claude-code--show-not-running-message)))
     ;; Kill single instance
     (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
-        (progn (with-current-buffer claude-code-buffer
-                 (eat-kill-process)
-                 (kill-buffer claude-code-buffer))
-               (message "Claude killed"))
+        (when (yes-or-no-p "Kill Claude instance? ")
+          (claude-code--kill-buffer claude-code-buffer)
+          (message "Claude instance killed"))
       (claude-code--show-not-running-message))))
 
 ;;;###autoload
