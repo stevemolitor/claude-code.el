@@ -142,6 +142,15 @@ outputs."
   :type 'boolean
   :group 'claude-code)
 
+(defcustom claude-code-thinking-levels '("think" "think hard" "think harder" "ultrathink")
+  "List of thinking effort keywords for Claude.
+
+These keywords can be appended to commands to allocate more computational
+time for Claude's problem-solving.  The list is ordered from least to most
+computational effort."
+  :type '(repeat string)
+  :group 'claude-code)
+
 ;; Forward declare variables to avoid compilation warnings
 (defvar eat-terminal)
 (defvar eat-term-name)
@@ -183,6 +192,7 @@ for each directory across multiple invocations.")
     (define-key map "x" 'claude-code-send-command-with-context)
     (define-key map "y" 'claude-code-send-return)
     (define-key map "z" 'claude-code-toggle-read-only-mode)
+    (define-key map "T" 'claude-code-thinking-menu)
     (define-key map "1" 'claude-code-send-1)
     (define-key map "2" 'claude-code-send-2)
     (define-key map "3" 'claude-code-send-3)
@@ -205,7 +215,8 @@ for each directory across multiple invocations.")
     ("r" "Send region or buffer" claude-code-send-region)
     ("e" "Fix error at point" claude-code-fix-error-at-point)
     ("f" "Fork (jump to previous conversation" claude-code-fork)
-    ("/" "Slash Commands" claude-code-slash-commands)]
+    ("/" "Slash Commands" claude-code-slash-commands)
+    ("T" "Thinking Commands" claude-code-thinking-menu)]
    ["Quick Responses" ("y" "Send <return> (\"Yes\")" claude-code-send-return)
     ("n" "Send <escape> (\"No\")" claude-code-send-escape)
     ("1" "Send \"1\"" claude-code-send-1)
@@ -242,6 +253,16 @@ for each directory across multiple invocations.")
     ("l" "Logout" (lambda () (interactive) (claude-code--do-send-command "/logout")))
     ("g" "Login" (lambda () (interactive) (claude-code--do-send-command "/login")))]
    ])
+
+;;;###autoload (autoload 'claude-code-thinking-menu "claude-code" nil t)
+(transient-define-prefix claude-code-thinking-menu ()
+  "Claude thinking effort menu."
+  ["Thinking Effort Levels"
+   ["Send thinking prefix (then type your command)"
+    ("1" "[Think]" claude-code-send-thinking-1)
+    ("2" "[Think Hard]" claude-code-send-thinking-2)
+    ("3" "[Think Harder]" claude-code-send-thinking-3)
+    ("4" "[Ultrathink]" claude-code-send-thinking-4)]])
 
 ;;;; Private util functions
 (defun claude-code--directory ()
@@ -449,6 +470,19 @@ Returns the selected Claude buffer or nil."
         (with-current-buffer claude-code-buffer
           (eat-term-send-string eat-terminal cmd)
           (eat-term-send-string eat-terminal (kbd "RET"))
+          (display-buffer claude-code-buffer))
+        claude-code-buffer)
+    (claude-code--show-not-running-message)
+    nil))
+
+(defun claude-code--do-send-string (str)
+  "Send a string STR to Claude without sending return.
+
+Returns the selected Claude buffer or nil."
+  (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
+      (progn
+        (with-current-buffer claude-code-buffer
+          (eat-term-send-string eat-terminal str)
           (display-buffer claude-code-buffer))
         claude-code-buffer)
     (claude-code--show-not-running-message)
@@ -668,6 +702,42 @@ Returns a string with the errors or a message if no errors found."
    (t "No errors at point")))
 
 ;;;; Interactive Commands
+
+;;;###autoload
+(defun claude-code-send-thinking-prefix (thinking-level)
+  "Send thinking prefix for THINKING-LEVEL to Claude.
+
+THINKING-LEVEL should be one of the values in `claude-code-thinking-levels'.
+This sends the prefix (e.g., \"[Think] \") and lets the user type the command."
+  (interactive
+   (list (completing-read "Thinking level: " claude-code-thinking-levels nil t)))
+  (let* ((capitalized-level (mapconcat 'capitalize (split-string thinking-level) " "))
+         (thinking-prefix (concat "[" capitalized-level "] ")))
+    (claude-code--do-send-string thinking-prefix)))
+
+;;;###autoload
+(defun claude-code-send-thinking-1 ()
+  "Send thinking level 1 prefix ([Think]) to Claude."
+  (interactive)
+  (claude-code-send-thinking-prefix (nth 0 claude-code-thinking-levels)))
+
+;;;###autoload
+(defun claude-code-send-thinking-2 ()
+  "Send thinking level 2 prefix ([Think Hard]) to Claude."
+  (interactive)
+  (claude-code-send-thinking-prefix (nth 1 claude-code-thinking-levels)))
+
+;;;###autoload
+(defun claude-code-send-thinking-3 ()
+  "Send thinking level 3 prefix ([Think Harder]) to Claude."
+  (interactive)
+  (claude-code-send-thinking-prefix (nth 2 claude-code-thinking-levels)))
+
+;;;###autoload
+(defun claude-code-send-thinking-4 ()
+  "Send thinking level 4 prefix ([Ultrathink]) to Claude."
+  (interactive)
+  (claude-code-send-thinking-prefix (nth 3 claude-code-thinking-levels)))
 
 ;;;###autoload
 (defun claude-code-send-region (&optional arg)
