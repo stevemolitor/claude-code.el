@@ -62,6 +62,7 @@ You need to set your own key binding for the Claude Code command map. The exampl
 - `claude-code-send-2` (`C-c c 2`) - Send "2" to Claude (useful for selecting the second option when Claude presents a numbered menu)
 - `claude-code-send-3` (`C-c c 3`) - Send "3" to Claude (useful for selecting the third option when Claude presents a numbered menu)
 - `claude-code-cycle-mode` (`C-c c TAB`) - Send Shift-Tab to Claude to cycle between default mode, auto-accept edits mode, and plan mode
+- `claude-code-thinking-menu` (`C-c c T`) - Access thinking effort commands menu
 
 With a single prefix arg, `claude-code`, `claude-code-send-command` and
 `claude-code-send-command-with-context` will switch to the Claude terminal buffer after sending the
@@ -97,6 +98,21 @@ Access all commands through the transient menu with `C-c c m`.
 #### Slash Commands Menu
 
 For quick access to Claude slash commands like `/help`, `/clear`, or `/compact`, use `C-c c /` to open the slash commands menu.
+
+#### Thinking Budget Commands
+
+Claude supports "thinking effort" keywords that allocate more computational time for problem-solving. The thinking menu (`C-c c T`) provides quick access to send thinking prefixes to Claude:
+
+- Level 1: `[Think]` - Basic thinking effort
+- Level 2: `[Think Hard]` - Increased thinking effort  
+- Level 3: `[Think Harder]` - More thinking effort
+- Level 4: `[Ultrathink]` - Maximum thinking effort
+
+When you select a thinking level, it sends the prefix (e.g., `[Ultrathink] `) to Claude and positions the cursor for you to type your command. After typing your command, press Enter to submit it.
+
+For example, selecting level 4 sends `[Ultrathink] ` to the Claude buffer, then you type: `explain this code` and press Enter.
+
+The thinking keywords are customizable via `claude-code-thinking-levels`.
 
 ### Read-Only Mode for Text Selection
 
