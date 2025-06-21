@@ -450,15 +450,13 @@ SWITCHES are command line arguments for the program."
 BUFFER-NAME is the name for the terminal buffer (unused by vterm).
 PROGRAM is the program to run.
 SWITCHES are command line arguments for the program."
-  ;; vterm doesn't support switches in the same way as eat
-  ;; We'll need to handle this differently
-  (setq-local vterm-shell program)
+  ;; vterm starts a shell, so we need to construct a command to run claude
   (vterm-mode)
-  ;; If there are switches, we might need to send them as a command
-  ;; after vterm starts, or construct a shell command
-  (when switches
-    ;; For now, construct a shell command if there are switches
-    (vterm-send-string (concat program " " (mapconcat #'identity switches " ")))
+  ;; Run the program with switches
+  (let ((command (if switches
+                     (concat program " " (mapconcat #'identity switches " "))
+                   program)))
+    (vterm-send-string command)
     (vterm-send-return)))
 
 (defun claude-code--vterm-send-string (string)
