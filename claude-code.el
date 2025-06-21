@@ -279,20 +279,24 @@ for each directory across multiple invocations.")
   "Validate that the selected terminal backend is available.
 
 Returns t if the backend is available, nil otherwise.
-For eat backend, always returns t since eat is a required dependency.
+For eat backend, checks if eat is available.
 For vterm backend, checks if vterm is available."
   (pcase claude-code-terminal-backend
-    ('eat t)  ; eat is always available as it's a required dependency
+    ('eat (featurep 'eat))
     ('vterm (featurep 'vterm))
     (_ (error "Invalid terminal backend: %s" claude-code-terminal-backend))))
 
 (defun claude-code--ensure-terminal-backend ()
   "Ensure the selected terminal backend is available.
 
-Attempts to load vterm if it's selected but not yet loaded.
+Attempts to load the selected backend if not yet loaded.
 Raises an error if the backend cannot be loaded."
   (pcase claude-code-terminal-backend
-    ('eat t)  ; eat is always available
+    ('eat
+     (unless (featurep 'eat)
+       (condition-case nil
+           (require 'eat)
+         (error "Failed to load eat terminal backend"))))
     ('vterm
      (unless (featurep 'vterm)
        (condition-case nil
@@ -459,23 +463,29 @@ is ignored as we operate on the current buffer."
   ;; Disable line wrapping to prevent terminal UI corruption in narrow windows
   (setq-local truncate-lines t)
   (setq-local truncate-partial-width-windows nil)
+  ;; Prevent vterm from automatically renaming the buffer
+  (setq-local vterm-buffer-name-string nil)
   ;; Add window size change hook for vterm to handle resizing
   (add-hook 'window-size-change-functions #'claude-code--vterm-window-size-change nil t))
 
-(defun claude-code--vterm-make (_buffer-name program switches)
+(defun claude-code--vterm-make (buffer-name program switches)
   "Create a vterm terminal.
 
-BUFFER-NAME is the name for the terminal buffer (unused by vterm).
+BUFFER-NAME is the name for the terminal buffer.
 PROGRAM is the program to run.
 SWITCHES are command line arguments for the program."
-  ;; vterm starts a shell, so we need to construct a command to run claude
-  (vterm-mode)
-  ;; Run the program with switches
-  (let ((command (if switches
-                     (concat program " " (mapconcat #'identity switches " "))
-                   program)))
-    (vterm-send-string command)
-    (vterm-send-return)))
+  ;; Store the current buffer (which has our desired name)
+  (let ((original-buffer-name (buffer-name)))
+    ;; vterm starts a shell, so we need to construct a command to run claude
+    (vterm-mode)
+    ;; Restore our desired buffer name (vterm-mode may have changed it)
+    (rename-buffer original-buffer-name t)
+    ;; Run the program with switches
+    (let ((command (if switches
+                       (concat program " " (mapconcat #'identity switches " "))
+                     program)))
+      (vterm-send-string command)
+      (vterm-send-return))))
 
 (defun claude-code--vterm-send-string (string)
   "Send STRING to the vterm terminal."
@@ -889,7 +899,9 @@ With triple prefix ARG (\\[universal-argument] \\[universal-argument] \\[univers
       (add-hook 'window-configuration-change-hook #'claude-code--on-window-configuration-change nil t)
 
       ;; fix wonky initial terminal layout that happens sometimes if we show the buffer before claude is ready
-      (sleep-for claude-code-startup-delay)
+      ;; Only needed for eat terminal backend
+      (when (eq claude-code-terminal-backend 'eat)
+        (sleep-for claude-code-startup-delay))
 
       ;; Add cleanup hook to remove directory mappings when buffer is killed
       (add-hook 'kill-buffer-hook #'claude-code--cleanup-directory-mapping nil t)
@@ -1130,7 +1142,7 @@ Sends <escape><escape> to the Claude Code REPL."
   (interactive)
   (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
       (with-current-buffer claude-code-buffer
-        (eat-term-send-string eat-terminal "")
+        (claude-code--send-key "")
         (display-buffer claude-code-buffer))
     (error "Claude is not running")))
 
