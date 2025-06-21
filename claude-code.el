@@ -436,13 +436,31 @@ SWITCHES are command line arguments for the program."
 
 ;;;; Vterm Backend Implementation
 
+(defun claude-code--vterm-window-size-change (_frame)
+  "Handle window size changes for vterm buffers.
+  
+This function is called when window size changes. It ensures vterm
+properly adjusts to the new window dimensions. The _FRAME argument
+is ignored as we operate on the current buffer."
+  (when (and (eq claude-code-terminal-backend 'vterm)
+             (derived-mode-p 'vterm-mode))
+    ;; Force vterm to recalculate window size
+    ;; vterm has its own window size adjustment function
+    (when (fboundp 'vterm--window-adjust-process-window-size)
+      (vterm--window-adjust-process-window-size))))
+
 (defun claude-code--vterm-setup-buffer ()
   "Setup vterm-specific buffer settings."
   ;; Vterm doesn't need as much setup as eat
   ;; Most terminal behavior is handled internally by vterm
   (setq-local vterm-max-scrollback (if claude-code-never-truncate-claude-buffer
                                         1000000  ; Very large scrollback
-                                      vterm-max-scrollback)))
+                                      vterm-max-scrollback))
+  ;; Disable line wrapping to prevent terminal UI corruption in narrow windows
+  (setq-local truncate-lines t)
+  (setq-local truncate-partial-width-windows nil)
+  ;; Add window size change hook for vterm to handle resizing
+  (add-hook 'window-size-change-functions #'claude-code--vterm-window-size-change nil t))
 
 (defun claude-code--vterm-make (_buffer-name program switches)
   "Create a vterm terminal.
