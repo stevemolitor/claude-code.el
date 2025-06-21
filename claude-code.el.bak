@@ -174,9 +174,6 @@ outputs."
 ;; Forward declare vterm functions
 (defvar vterm-shell)
 (defvar vterm-max-scrollback)
-(defvar vterm-buffer-name-string)
-(defvar vterm-scroll-to-bottom-on-output)
-(defvar vterm-copy-mode)
 (declare-function vterm-mode "vterm")
 (declare-function vterm-send-string "vterm")
 (declare-function vterm-send-return "vterm")
@@ -185,8 +182,6 @@ outputs."
 (declare-function vterm-send-backspace "vterm")
 (declare-function vterm-send-key "vterm")
 (declare-function vterm-copy-mode "vterm")
-(declare-function vterm--set-title "vterm")
-(declare-function vterm--window-adjust-process-window-size "vterm")
 
 ;; Forward declare flycheck functions
 (declare-function flycheck-overlay-errors-at "flycheck")
@@ -448,17 +443,8 @@ SWITCHES are command line arguments for the program."
 (defvar claude-code--window-widths (make-hash-table :test 'eq :weakness 'key)
   "Hash table mapping windows to their last known widths.")
 
-(defun claude-code--vterm-set-title-override (_title)
-  "Override vterm's title setting to prevent buffer renaming.
-
-This function is used as advice to prevent vterm from changing
-the buffer name when terminal programs set the window title.
-The _TITLE argument is ignored."
-  ;; Do nothing - we want to keep our buffer name
-  nil)
-
 (defun claude-code--vterm-window-size-change (_frame)
-  "Handle window size change for vterm buffers.
+  "Handle window size changes for vterm buffers.
   
 This function is called when window size changes. It ensures vterm
 properly adjusts to the new window dimensions. The _FRAME argument
@@ -487,12 +473,10 @@ is ignored as we operate on the current buffer."
   ;; Add window size change hook for vterm to handle resizing
   (add-hook 'window-size-change-functions #'claude-code--vterm-window-size-change nil t)
   ;; Add advice to only adjust on width changes
-  (advice-add 'vterm--window-adjust-process-window-size
+  (advice-add 'vterm--window-adjust-process-window-size 
               :around #'claude-code--vterm-adjust-process-window-size-advice)
   ;; Add post-command hook to synchronize scrolling
-  (add-hook 'post-command-hook #'claude-code--vterm-synchronize-scroll nil t)
-  ;; Prevent vterm from changing buffer name via title updates
-  (advice-add 'vterm--set-title :override #'claude-code--vterm-set-title-override))
+  (add-hook 'post-command-hook #'claude-code--vterm-synchronize-scroll nil t))
 
 (defun claude-code--vterm-make (_buffer-name program switches)
   "Create a vterm terminal.
@@ -567,8 +551,7 @@ the minibuffer opens/closes."
   "Advice for `vterm--window-adjust-process-window-size' to reduce flickering.
 
 Only calls ORIG-FUN when the window width actually changes, not just height.
-This prevents unnecessary terminal reflows when the minibuffer opens/closes.
-ARGS are passed to ORIG-FUN."
+This prevents unnecessary terminal reflows when the minibuffer opens/closes."
   (let* ((windows (get-buffer-window-list (current-buffer) nil t))
          (width-changed nil))
     ;; Check if any window width has changed
@@ -775,12 +758,7 @@ the remembered directory->buffer associations."
     (maphash (lambda (dir buffer)
                (when (eq buffer dying-buffer)
                  (remhash dir claude-code--directory-buffer-map)))
-             claude-code--directory-buffer-map))
-  ;; Clean up vterm-specific advice if using vterm backend
-  (when (eq claude-code-terminal-backend 'vterm)
-    (advice-remove 'vterm--set-title #'claude-code--vterm-set-title-override)
-    (advice-remove 'vterm--window-adjust-process-window-size
-                   #'claude-code--vterm-adjust-process-window-size-advice)))
+             claude-code--directory-buffer-map)))
 
 (defun claude-code--get-buffer-file-name ()
   "Get the file name associated with the current buffer."
@@ -1214,7 +1192,7 @@ Sends <escape><escape> to the Claude Code REPL."
   (interactive)
   (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
       (with-current-buffer claude-code-buffer
-        (claude-code--term-send-key "")
+        (claude-code--send-key "")
         (display-buffer claude-code-buffer))
     (error "Claude is not running")))
 
