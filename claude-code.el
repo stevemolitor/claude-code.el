@@ -660,12 +660,17 @@ If not in a project and no buffer file, raise an error."
 
 This function handles the proper cleanup sequence for a Claude buffer:
 1. Remove the window configuration change hook
-2. Kill the eat process
-3. Kill the buffer"
+2. Kill the terminal process
+3. Kill the buffer without prompting"
   (with-current-buffer buffer
     (remove-hook 'window-configuration-change-hook #'claude-code--on-window-configuration-change t)
+    ;; Kill the process first
     (claude-code--term-kill-process)
-    (kill-buffer buffer)))
+    ;; Set buffer-modified-p to nil to avoid save prompts
+    (set-buffer-modified-p nil)
+    ;; Let kill-buffer-query-functions skip process check
+    (let ((kill-buffer-query-functions nil))
+      (kill-buffer buffer))))
 
 (defun claude-code--cleanup-directory-mapping ()
   "Remove entries from directory-buffer map when this buffer is killed.
