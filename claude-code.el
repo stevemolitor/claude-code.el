@@ -171,6 +171,17 @@ outputs."
 (declare-function eat-emacs-mode "eat")
 (declare-function eat-semi-char-mode "eat")
 
+;; Forward declare vterm functions
+(defvar vterm-shell)
+(declare-function vterm-mode "vterm")
+(declare-function vterm-send-string "vterm")
+(declare-function vterm-send-return "vterm")
+(declare-function vterm-send-escape "vterm")
+(declare-function vterm-send-tab "vterm")
+(declare-function vterm-send-backspace "vterm")
+(declare-function vterm-send-key "vterm")
+(declare-function vterm-copy-mode "vterm")
+
 ;; Forward declare flycheck functions
 (declare-function flycheck-overlay-errors-at "flycheck")
 (declare-function flycheck-error-filename "flycheck")
@@ -288,6 +299,154 @@ Raises an error if the backend cannot be loaded."
          (error
           (error "Vterm backend selected but vterm package is not installed. Please install vterm or switch to eat backend")))))
     (_ (error "Invalid terminal backend: %s" claude-code-terminal-backend))))
+
+;;;; Terminal Backend Abstraction Layer
+
+(defun claude-code--term-make (buffer-name program switches)
+  "Create a terminal using the configured backend.
+
+BUFFER-NAME is the name for the terminal buffer.
+PROGRAM is the program to run.
+SWITCHES are command line arguments for the program.
+
+This function dispatches to the appropriate backend-specific
+implementation based on `claude-code-terminal-backend'."
+  (claude-code--ensure-terminal-backend)
+  (pcase claude-code-terminal-backend
+    ('eat (claude-code--eat-make buffer-name program switches))
+    ('vterm (claude-code--vterm-make buffer-name program switches))))
+
+(defun claude-code--term-send-string (string)
+  "Send STRING to the terminal.
+
+This function dispatches to the appropriate backend-specific
+implementation based on `claude-code-terminal-backend'."
+  (pcase claude-code-terminal-backend
+    ('eat (claude-code--eat-send-string string))
+    ('vterm (claude-code--vterm-send-string string))))
+
+(defun claude-code--term-send-key (key)
+  "Send KEY to the terminal.
+
+KEY should be a string like \"<escape>\" or \"<return>\".
+
+This function dispatches to the appropriate backend-specific
+implementation based on `claude-code-terminal-backend'."
+  (pcase claude-code-terminal-backend
+    ('eat (claude-code--eat-send-key key))
+    ('vterm (claude-code--vterm-send-key key))))
+
+(defun claude-code--term-kill-process ()
+  "Kill the terminal process.
+
+This function dispatches to the appropriate backend-specific
+implementation based on `claude-code-terminal-backend'."
+  (pcase claude-code-terminal-backend
+    ('eat (claude-code--eat-kill-process))
+    ('vterm (claude-code--vterm-kill-process))))
+
+(defun claude-code--term-enter-read-only-mode ()
+  "Enter read-only/copy mode in the terminal.
+
+This function dispatches to the appropriate backend-specific
+implementation based on `claude-code-terminal-backend'."
+  (pcase claude-code-terminal-backend
+    ('eat (claude-code--eat-enter-read-only-mode))
+    ('vterm (claude-code--vterm-enter-read-only-mode))))
+
+(defun claude-code--term-exit-read-only-mode ()
+  "Exit read-only/copy mode in the terminal.
+
+This function dispatches to the appropriate backend-specific
+implementation based on `claude-code-terminal-backend'."
+  (pcase claude-code-terminal-backend
+    ('eat (claude-code--eat-exit-read-only-mode))
+    ('vterm (claude-code--vterm-exit-read-only-mode))))
+
+;;;; Eat Backend Implementation
+
+(defun claude-code--eat-make (buffer-name program switches)
+  "Create an eat terminal.
+
+BUFFER-NAME is the name for the terminal buffer.
+PROGRAM is the program to run.
+SWITCHES are command line arguments for the program."
+  (apply #'eat-make buffer-name program nil switches))
+
+(defun claude-code--eat-send-string (string)
+  "Send STRING to the eat terminal."
+  (when eat-terminal
+    (eat-term-send-string eat-terminal string)
+    (eat-term-send-string eat-terminal (kbd "RET"))))
+
+(defun claude-code--eat-send-key (key)
+  "Send KEY to the eat terminal."
+  (when eat-terminal
+    (eat-term-send-string eat-terminal (kbd key))))
+
+(defun claude-code--eat-kill-process ()
+  "Kill the eat terminal process."
+  (eat-kill-process))
+
+(defun claude-code--eat-enter-read-only-mode ()
+  "Enter read-only mode in eat terminal."
+  (eat-emacs-mode)
+  (setq-local eat-invisible-cursor-type claude-code-read-only-mode-cursor-type)
+  (eat--set-cursor nil :invisible))
+
+(defun claude-code--eat-exit-read-only-mode ()
+  "Exit read-only mode in eat terminal."
+  (eat-semi-char-mode)
+  (setq-local eat-invisible-cursor-type nil)
+  (eat--set-cursor nil :invisible))
+
+;;;; Vterm Backend Implementation
+
+(defun claude-code--vterm-make (_buffer-name program switches)
+  "Create a vterm terminal.
+
+BUFFER-NAME is the name for the terminal buffer (unused by vterm).
+PROGRAM is the program to run.
+SWITCHES are command line arguments for the program."
+  ;; vterm doesn't support switches in the same way as eat
+  ;; We'll need to handle this differently
+  (setq-local vterm-shell program)
+  (vterm-mode)
+  ;; If there are switches, we might need to send them as a command
+  ;; after vterm starts, or construct a shell command
+  (when switches
+    ;; For now, construct a shell command if there are switches
+    (vterm-send-string (concat program " " (mapconcat #'identity switches " ")))
+    (vterm-send-return)))
+
+(defun claude-code--vterm-send-string (string)
+  "Send STRING to the vterm terminal."
+  (vterm-send-string string)
+  (vterm-send-return))
+
+(defun claude-code--vterm-send-key (key)
+  "Send KEY to the vterm terminal."
+  (pcase key
+    ("<escape>" (vterm-send-escape))
+    ("<return>" (vterm-send-return))
+    ("<tab>" (vterm-send-tab))
+    ("<backspace>" (vterm-send-backspace))
+    (_ (vterm-send-key key))))
+
+(defun claude-code--vterm-kill-process ()
+  "Kill the vterm terminal process."
+  ;; vterm doesn't have a direct kill-process function
+  ;; We need to kill the buffer's process
+  (when-let ((proc (get-buffer-process (current-buffer))))
+    (kill-process proc)))
+
+(defun claude-code--vterm-enter-read-only-mode ()
+  "Enter read-only mode in vterm terminal."
+  (vterm-copy-mode 1))
+
+(defun claude-code--vterm-exit-read-only-mode ()
+  "Exit read-only mode in vterm terminal."
+  (vterm-copy-mode -1))
 
 (defun claude-code--directory ()
   "Get get the root Claude directory for the current buffer.
