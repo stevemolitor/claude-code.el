@@ -10,6 +10,10 @@
 ;; An Emacs interface to Claude Code.  This package provides convenient
 ;; ways to interact with Claude from within Emacs, including sending
 ;; commands, toggling the Claude window, and accessing slash commands.
+;;
+;; This package supports both eat and vterm terminal backends.  The eat
+;; backend is the default and is required.  The vterm backend is optional
+;; and requires the vterm package to be installed separately.
 
 ;;; Code:
 
@@ -36,6 +40,16 @@
 (defface claude-code-repl-face
   nil
   "Face for Claude REPL."
+  :group 'claude-code)
+
+(defcustom claude-code-terminal-backend 'eat
+  "Terminal backend to use for Claude Code.
+
+Can be either \\='eat or \\='vterm.  The eat terminal is the default
+and original backend.  The vterm backend requires the vterm
+package to be installed."
+  :type '(choice (const :tag "Eat terminal" eat)
+                 (const :tag "Vterm terminal" vterm))
   :group 'claude-code)
 
 (defcustom claude-code-term-name "xterm-256color"
@@ -66,13 +80,18 @@ region is active, prompt for confirmation if buffer size exceeds this value."
 
 (defcustom claude-code-program "claude"
   "Program to run when starting Claude.
-This is passed as the PROGRAM parameter to `eat-make`."
+
+For eat backend: passed as the PROGRAM parameter to `eat-make`.
+For vterm backend: set as the shell to run in vterm."
   :type 'string
   :group 'claude-code)
 
 (defcustom claude-code-program-switches nil
   "List of command line switches to pass to the Claude program.
-These are passed as SWITCHES parameters to `eat-make`."
+
+For eat backend: passed as SWITCHES parameters to `eat-make`.
+For vterm backend: handled differently as vterm doesn't support
+switches in the same way."
   :type '(repeat string)
   :group 'claude-code)
 
@@ -244,6 +263,32 @@ for each directory across multiple invocations.")
    ])
 
 ;;;; Private util functions
+(defun claude-code--validate-terminal-backend ()
+  "Validate that the selected terminal backend is available.
+
+Returns t if the backend is available, nil otherwise.
+For eat backend, always returns t since eat is a required dependency.
+For vterm backend, checks if vterm is available."
+  (pcase claude-code-terminal-backend
+    ('eat t)  ; eat is always available as it's a required dependency
+    ('vterm (featurep 'vterm))
+    (_ (error "Invalid terminal backend: %s" claude-code-terminal-backend))))
+
+(defun claude-code--ensure-terminal-backend ()
+  "Ensure the selected terminal backend is available.
+
+Attempts to load vterm if it's selected but not yet loaded.
+Raises an error if the backend cannot be loaded."
+  (pcase claude-code-terminal-backend
+    ('eat t)  ; eat is always available
+    ('vterm
+     (unless (featurep 'vterm)
+       (condition-case nil
+           (require 'vterm)
+         (error
+          (error "Vterm backend selected but vterm package is not installed. Please install vterm or switch to eat backend")))))
+    (_ (error "Invalid terminal backend: %s" claude-code-terminal-backend))))
+
 (defun claude-code--directory ()
   "Get get the root Claude directory for the current buffer.
 
