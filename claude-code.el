@@ -624,7 +624,7 @@ This function handles the proper cleanup sequence for a Claude buffer:
 3. Kill the buffer"
   (with-current-buffer buffer
     (remove-hook 'window-configuration-change-hook #'claude-code--on-window-configuration-change t)
-    (eat-kill-process)
+    (claude-code--term-kill-process)
     (kill-buffer buffer)))
 
 (defun claude-code--cleanup-directory-mapping ()
@@ -651,8 +651,7 @@ Returns the selected Claude buffer or nil."
   (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
       (progn
         (with-current-buffer claude-code-buffer
-          (eat-term-send-string eat-terminal cmd)
-          (eat-term-send-string eat-terminal (kbd "RET"))
+          (claude-code--term-send-string cmd)
           (display-buffer claude-code-buffer))
         claude-code-buffer)
     (claude-code--show-not-running-message)
@@ -1043,7 +1042,7 @@ having to switch to the REPL buffer."
   (interactive)
   (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
       (with-current-buffer claude-code-buffer
-        (eat-term-send-string eat-terminal (kbd "ESC"))
+        (claude-code--term-send-key "<escape>")
         (display-buffer claude-code-buffer))
     (claude-code--show-not-running-message)))
 
@@ -1058,7 +1057,7 @@ Claude uses Shift-Tab to cycle through:
   (interactive)
   (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
       (with-current-buffer claude-code-buffer
-        (eat-term-send-string eat-terminal "\e[Z")
+        (claude-code--term-send-key "\e[Z")
         (display-buffer claude-code-buffer))
     (claude-code--show-not-running-message)))
 
@@ -1106,9 +1105,7 @@ Use `claude-code-exit-read-only-mode' to switch back to normal mode."
   (interactive)
   (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
       (with-current-buffer claude-code-buffer
-        (eat-emacs-mode)
-        (setq-local eat-invisible-cursor-type claude-code-read-only-mode-cursor-type)
-        (eat--set-cursor nil :invisible)
+        (claude-code--term-enter-read-only-mode)
         (message "Claude read-only mode enabled"))
     (claude-code--show-not-running-message)))
 
@@ -1118,9 +1115,7 @@ Use `claude-code-exit-read-only-mode' to switch back to normal mode."
   (interactive)
   (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
       (with-current-buffer claude-code-buffer
-        (eat-semi-char-mode)
-        (setq-local eat-invisible-cursor-type nil)
-        (eat--set-cursor nil :invisible)
+        (claude-code--term-exit-read-only-mode)
         (message "Claude semi-char mode enabled"))
     (claude-code--show-not-running-message)))
 
