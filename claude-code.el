@@ -10,6 +10,10 @@
 ;; An Emacs interface to Claude Code.  This package provides convenient
 ;; ways to interact with Claude from within Emacs, including sending
 ;; commands, toggling the Claude window, and accessing slash commands.
+;;
+;; This package supports both eat and vterm terminal backends.  The eat
+;; backend is the default and is required.  The vterm backend is optional
+;; and requires the vterm package to be installed separately.
 
 ;;; Code:
 
@@ -36,6 +40,16 @@
 (defface claude-code-repl-face
   nil
   "Face for Claude REPL."
+  :group 'claude-code)
+
+(defcustom claude-code-terminal-backend 'eat
+  "Terminal backend to use for Claude Code.
+
+Can be either \\='eat or \\='vterm.  The eat terminal is the default
+and original backend.  The vterm backend requires the vterm
+package to be installed."
+  :type '(choice (const :tag "Eat terminal" eat)
+                 (const :tag "Vterm terminal" vterm))
   :group 'claude-code)
 
 (defcustom claude-code-term-name "xterm-256color"
@@ -66,13 +80,18 @@ region is active, prompt for confirmation if buffer size exceeds this value."
 
 (defcustom claude-code-program "claude"
   "Program to run when starting Claude.
-This is passed as the PROGRAM parameter to `eat-make`."
+
+For eat backend: passed as the PROGRAM parameter to `eat-make`.
+For vterm backend: set as the shell to run in vterm."
   :type 'string
   :group 'claude-code)
 
 (defcustom claude-code-program-switches nil
   "List of command line switches to pass to the Claude program.
-These are passed as SWITCHES parameters to `eat-make`."
+
+For eat backend: passed as SWITCHES parameters to `eat-make`.
+For vterm backend: handled differently as vterm doesn't support
+switches in the same way."
   :type '(repeat string)
   :group 'claude-code)
 
@@ -151,6 +170,18 @@ outputs."
 (declare-function eat-make "eat")
 (declare-function eat-emacs-mode "eat")
 (declare-function eat-semi-char-mode "eat")
+
+;; Forward declare vterm functions
+(defvar vterm-shell)
+(defvar vterm-max-scrollback)
+(declare-function vterm-mode "vterm")
+(declare-function vterm-send-string "vterm")
+(declare-function vterm-send-return "vterm")
+(declare-function vterm-send-escape "vterm")
+(declare-function vterm-send-tab "vterm")
+(declare-function vterm-send-backspace "vterm")
+(declare-function vterm-send-key "vterm")
+(declare-function vterm-copy-mode "vterm")
 
 ;; Forward declare flycheck functions
 (declare-function flycheck-overlay-errors-at "flycheck")
@@ -244,6 +275,247 @@ for each directory across multiple invocations.")
    ])
 
 ;;;; Private util functions
+(defun claude-code--validate-terminal-backend ()
+  "Validate that the selected terminal backend is available.
+
+Returns t if the backend is available, nil otherwise.
+For eat backend, checks if eat is available.
+For vterm backend, checks if vterm is available."
+  (pcase claude-code-terminal-backend
+    ('eat (featurep 'eat))
+    ('vterm (featurep 'vterm))
+    (_ (error "Invalid terminal backend: %s" claude-code-terminal-backend))))
+
+(defun claude-code--ensure-terminal-backend ()
+  "Ensure the selected terminal backend is available.
+
+Attempts to load the selected backend if not yet loaded.
+Raises an error if the backend cannot be loaded."
+  (pcase claude-code-terminal-backend
+    ('eat
+     (unless (featurep 'eat)
+       (condition-case nil
+           (require 'eat)
+         (error "Failed to load eat terminal backend"))))
+    ('vterm
+     (unless (featurep 'vterm)
+       (condition-case nil
+           (require 'vterm)
+         (error
+          (error "Vterm backend selected but vterm package is not installed. Please install vterm or switch to eat backend")))))
+    (_ (error "Invalid terminal backend: %s" claude-code-terminal-backend))))
+
+;;;; Terminal Backend Abstraction Layer
+
+(defun claude-code--term-in-read-only-mode-p ()
+  "Check if the terminal is currently in read-only mode.
+
+This function checks the backend-specific state to determine
+if the terminal is in read-only/copy mode."
+  (pcase claude-code-terminal-backend
+    ('eat (not eat--semi-char-mode))
+    ('vterm (and (boundp 'vterm-copy-mode) vterm-copy-mode))))
+
+(defun claude-code--term-setup-buffer ()
+  "Setup terminal buffer based on the configured backend.
+
+This function dispatches to the appropriate backend-specific
+setup function."
+  (pcase claude-code-terminal-backend
+    ('eat (claude-code--eat-setup-buffer))
+    ('vterm (claude-code--vterm-setup-buffer))))
+
+(defun claude-code--term-make (buffer-name program switches)
+  "Create a terminal using the configured backend.
+
+BUFFER-NAME is the name for the terminal buffer.
+PROGRAM is the program to run.
+SWITCHES are command line arguments for the program.
+
+This function dispatches to the appropriate backend-specific
+implementation based on `claude-code-terminal-backend'."
+  (claude-code--ensure-terminal-backend)
+  (pcase claude-code-terminal-backend
+    ('eat (claude-code--eat-make buffer-name program switches))
+    ('vterm (claude-code--vterm-make buffer-name program switches))))
+
+(defun claude-code--term-send-string (string)
+  "Send STRING to the terminal.
+
+This function dispatches to the appropriate backend-specific
+implementation based on `claude-code-terminal-backend'."
+  (pcase claude-code-terminal-backend
+    ('eat (claude-code--eat-send-string string))
+    ('vterm (claude-code--vterm-send-string string))))
+
+(defun claude-code--term-send-key (key)
+  "Send KEY to the terminal.
+
+KEY should be a string like \"<escape>\" or \"<return>\".
+
+This function dispatches to the appropriate backend-specific
+implementation based on `claude-code-terminal-backend'."
+  (pcase claude-code-terminal-backend
+    ('eat (claude-code--eat-send-key key))
+    ('vterm (claude-code--vterm-send-key key))))
+
+(defun claude-code--term-kill-process ()
+  "Kill the terminal process.
+
+This function dispatches to the appropriate backend-specific
+implementation based on `claude-code-terminal-backend'."
+  (pcase claude-code-terminal-backend
+    ('eat (claude-code--eat-kill-process))
+    ('vterm (claude-code--vterm-kill-process))))
+
+(defun claude-code--term-enter-read-only-mode ()
+  "Enter read-only/copy mode in the terminal.
+
+This function dispatches to the appropriate backend-specific
+implementation based on `claude-code-terminal-backend'."
+  (pcase claude-code-terminal-backend
+    ('eat (claude-code--eat-enter-read-only-mode))
+    ('vterm (claude-code--vterm-enter-read-only-mode))))
+
+(defun claude-code--term-exit-read-only-mode ()
+  "Exit read-only/copy mode in the terminal.
+
+This function dispatches to the appropriate backend-specific
+implementation based on `claude-code-terminal-backend'."
+  (pcase claude-code-terminal-backend
+    ('eat (claude-code--eat-exit-read-only-mode))
+    ('vterm (claude-code--vterm-exit-read-only-mode))))
+
+;;;; Eat Backend Implementation
+
+(defun claude-code--eat-setup-buffer ()
+  "Setup eat-specific buffer settings."
+  (setq-local eat-term-name claude-code-term-name)
+  ;; Turn off shell integration, as we don't need it for Claude
+  (setq-local eat-enable-directory-tracking t
+              eat-enable-shell-command-history nil
+              eat-enable-shell-prompt-annotation nil)
+  ;; Conditionally disable scrollback truncation
+  (when claude-code-never-truncate-claude-buffer
+    (setq-local eat-term-scrollback-size nil))
+  ;; Add advice to only notify claude on window width changes
+  (advice-add 'eat--adjust-process-window-size :around #'claude-code--eat-adjust-process-window-size-advice)
+  ;; Set our custom synchronize scroll function
+  (setq-local eat--synchronize-scroll-function #'claude-code--synchronize-scroll))
+
+(defun claude-code--eat-make (buffer-name program switches)
+  "Create an eat terminal.
+
+BUFFER-NAME is the name for the terminal buffer.
+PROGRAM is the program to run.
+SWITCHES are command line arguments for the program."
+  (apply #'eat-make buffer-name program nil switches))
+
+(defun claude-code--eat-send-string (string)
+  "Send STRING to the eat terminal."
+  (when eat-terminal
+    (eat-term-send-string eat-terminal string)
+    (eat-term-send-string eat-terminal (kbd "RET"))))
+
+(defun claude-code--eat-send-key (key)
+  "Send KEY to the eat terminal."
+  (when eat-terminal
+    (eat-term-send-string eat-terminal (kbd key))))
+
+(defun claude-code--eat-kill-process ()
+  "Kill the eat terminal process."
+  (eat-kill-process))
+
+(defun claude-code--eat-enter-read-only-mode ()
+  "Enter read-only mode in eat terminal."
+  (eat-emacs-mode)
+  (setq-local eat-invisible-cursor-type claude-code-read-only-mode-cursor-type)
+  (eat--set-cursor nil :invisible))
+
+(defun claude-code--eat-exit-read-only-mode ()
+  "Exit read-only mode in eat terminal."
+  (eat-semi-char-mode)
+  (setq-local eat-invisible-cursor-type nil)
+  (eat--set-cursor nil :invisible))
+
+;;;; Vterm Backend Implementation
+
+(defun claude-code--vterm-window-size-change (_frame)
+  "Handle window size changes for vterm buffers.
+  
+This function is called when window size changes. It ensures vterm
+properly adjusts to the new window dimensions. The _FRAME argument
+is ignored as we operate on the current buffer."
+  (when (and (eq claude-code-terminal-backend 'vterm)
+             (derived-mode-p 'vterm-mode))
+    ;; Force vterm to recalculate window size
+    ;; vterm has its own window size adjustment function
+    (when (fboundp 'vterm--window-adjust-process-window-size)
+      (vterm--window-adjust-process-window-size))))
+
+(defun claude-code--vterm-setup-buffer ()
+  "Setup vterm-specific buffer settings."
+  ;; Vterm doesn't need as much setup as eat
+  ;; Most terminal behavior is handled internally by vterm
+  (setq-local vterm-max-scrollback (if claude-code-never-truncate-claude-buffer
+                                        1000000  ; Very large scrollback
+                                      vterm-max-scrollback))
+  ;; Disable line wrapping to prevent terminal UI corruption in narrow windows
+  (setq-local truncate-lines t)
+  (setq-local truncate-partial-width-windows nil)
+  ;; Prevent vterm from automatically renaming the buffer
+  (setq-local vterm-buffer-name-string nil)
+  ;; Add window size change hook for vterm to handle resizing
+  (add-hook 'window-size-change-functions #'claude-code--vterm-window-size-change nil t))
+
+(defun claude-code--vterm-make (buffer-name program switches)
+  "Create a vterm terminal.
+
+BUFFER-NAME is the name for the terminal buffer.
+PROGRAM is the program to run.
+SWITCHES are command line arguments for the program."
+  ;; Store the current buffer (which has our desired name)
+  (let ((original-buffer-name (buffer-name)))
+    ;; vterm starts a shell, so we need to construct a command to run claude
+    (vterm-mode)
+    ;; Restore our desired buffer name (vterm-mode may have changed it)
+    (rename-buffer original-buffer-name t)
+    ;; Run the program with switches
+    (let ((command (if switches
+                       (concat program " " (mapconcat #'identity switches " "))
+                     program)))
+      (vterm-send-string command)
+      (vterm-send-return))))
+
+(defun claude-code--vterm-send-string (string)
+  "Send STRING to the vterm terminal."
+  (vterm-send-string string)
+  (vterm-send-return))
+
+(defun claude-code--vterm-send-key (key)
+  "Send KEY to the vterm terminal."
+  (pcase key
+    ("<escape>" (vterm-send-escape))
+    ("<return>" (vterm-send-return))
+    ("<tab>" (vterm-send-tab))
+    ("<backspace>" (vterm-send-backspace))
+    (_ (vterm-send-key key))))
+
+(defun claude-code--vterm-kill-process ()
+  "Kill the vterm terminal process."
+  ;; vterm doesn't have a direct kill-process function
+  ;; We need to kill the buffer's process
+  (when-let ((proc (get-buffer-process (current-buffer))))
+    (kill-process proc)))
+
+(defun claude-code--vterm-enter-read-only-mode ()
+  "Enter read-only mode in vterm terminal."
+  (vterm-copy-mode 1))
+
+(defun claude-code--vterm-exit-read-only-mode ()
+  "Exit read-only mode in vterm terminal."
+  (vterm-copy-mode -1))
+
 (defun claude-code--directory ()
   "Get get the root Claude directory for the current buffer.
 
@@ -416,12 +688,17 @@ If not in a project and no buffer file, raise an error."
 
 This function handles the proper cleanup sequence for a Claude buffer:
 1. Remove the window configuration change hook
-2. Kill the eat process
-3. Kill the buffer"
+2. Kill the terminal process
+3. Kill the buffer without prompting"
   (with-current-buffer buffer
     (remove-hook 'window-configuration-change-hook #'claude-code--on-window-configuration-change t)
-    (eat-kill-process)
-    (kill-buffer buffer)))
+    ;; Kill the process first
+    (claude-code--term-kill-process)
+    ;; Set buffer-modified-p to nil to avoid save prompts
+    (set-buffer-modified-p nil)
+    ;; Let kill-buffer-query-functions skip process check
+    (let ((kill-buffer-query-functions nil))
+      (kill-buffer buffer))))
 
 (defun claude-code--cleanup-directory-mapping ()
   "Remove entries from directory-buffer map when this buffer is killed.
@@ -447,8 +724,7 @@ Returns the selected Claude buffer or nil."
   (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
       (progn
         (with-current-buffer claude-code-buffer
-          (eat-term-send-string eat-terminal cmd)
-          (eat-term-send-string eat-terminal (kbd "RET"))
+          (claude-code--term-send-string cmd)
           (display-buffer claude-code-buffer))
         claude-code-buffer)
     (claude-code--show-not-running-message)
@@ -459,24 +735,36 @@ Returns the selected Claude buffer or nil."
 
 Applies the `claude-code-repl-face' to all terminal-related faces
 for consistent appearance."
-  (dolist (face '(eat-shell-prompt-annotation-running
-                  eat-shell-prompt-annotation-success
-                  eat-shell-prompt-annotation-failure
-                  eat-term-bold
-                  eat-term-faint
-                  eat-term-italic
-                  eat-term-slow-blink
-                  eat-term-fast-blink))
-    (funcall 'face-remap-add-relative face :inherit 'claude-code-repl-face))
-  (dotimes (i 10)
-    (let ((face (intern (format "eat-term-font-%d" i))))
-      (funcall 'face-remap-add-relative face :inherit 'claude-code-repl-face)))
-  (dotimes (i 10)
-    (let ((face (intern (format "eat-term-font-%d" i))))
-      (funcall 'face-remap-add-relative face :inherit 'claude-code-repl-face)))
+  (pcase claude-code-terminal-backend
+    ('eat
+     (dolist (face '(eat-shell-prompt-annotation-running
+                     eat-shell-prompt-annotation-success
+                     eat-shell-prompt-annotation-failure
+                     eat-term-bold
+                     eat-term-faint
+                     eat-term-italic
+                     eat-term-slow-blink
+                     eat-term-fast-blink))
+       (funcall 'face-remap-add-relative face :inherit 'claude-code-repl-face))
+     (dotimes (i 10)
+       (let ((face (intern (format "eat-term-font-%d" i))))
+         (funcall 'face-remap-add-relative face :inherit 'claude-code-repl-face)))
+     (face-remap-add-relative 'eat-term-faint :foreground "#999999" :weight 'light))
+    ('vterm
+     ;; vterm uses standard Emacs faces for colors
+     (dolist (face '(vterm-color-black
+                     vterm-color-red
+                     vterm-color-green
+                     vterm-color-yellow
+                     vterm-color-blue
+                     vterm-color-magenta
+                     vterm-color-cyan
+                     vterm-color-white))
+       (when (facep face)
+         (funcall 'face-remap-add-relative face :inherit 'claude-code-repl-face)))))
+  ;; Common face setup for both backends
   (buffer-face-set :inherit 'claude-code-repl-face)
-  (face-remap-add-relative 'nobreak-space :underline nil)
-  (face-remap-add-relative 'eat-term-faint :foreground "#999999" :weight 'light))
+  (face-remap-add-relative 'nobreak-space :underline nil))
 
 (defun claude-code--synchronize-scroll (windows)
   "Synchronize scrolling and point between terminal and WINDOWS.
@@ -550,7 +838,7 @@ ARGS is passed to ORIG-FUN unchanged."
           (if width-changed result nil)))))
 
 (defun claude-code (&optional arg)
-  "Start Claude in an eat terminal and enable `claude-code-mode'.
+  "Start Claude in a terminal and enable `claude-code-mode'.
 
 If current buffer belongs to a project start Claude in the project's
 root directory. Otherwise start in the directory of the current buffer
@@ -562,8 +850,8 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), continue
 With triple prefix ARG (\\[universal-argument] \\[universal-argument] \\[universal-argument]), prompt for the project directory."
   (interactive "P")
 
-  ;; Forward declare variables to avoid compilation warnings
-  (require 'eat)
+  ;; Ensure terminal backend is available
+  (claude-code--ensure-terminal-backend)
 
   (let* ((dir (if (equal arg '(64))  ; Triple prefix
                   (read-directory-name "Project directory: ")
@@ -590,41 +878,30 @@ With triple prefix ARG (\\[universal-argument] \\[universal-argument] \\[univers
          (program-switches (if continue
                                (append claude-code-program-switches '("--continue"))
                              claude-code-program-switches)))
-    ;; Start the eat process
+    ;; Start the terminal process
     (with-current-buffer buffer
       (cd dir)
-      (setq-local eat-term-name claude-code-term-name)
-
-      ;; Turn off shell integration, as we don't need it for Claude
-      (setq-local eat-enable-directory-tracking t
-                  eat-enable-shell-command-history nil
-                  eat-enable-shell-prompt-annotation nil)
       
-      ;; Conditionally disable scrollback truncation
-      (when claude-code-never-truncate-claude-buffer
-        (setq-local eat-term-scrollback-size nil))
+      ;; Setup backend-specific buffer settings
+      (claude-code--term-setup-buffer)
 
       (let ((process-adaptive-read-buffering nil))
         (condition-case nil
-            (apply #'eat-make trimmed-buffer-name claude-code-program nil program-switches)
+            (claude-code--term-make trimmed-buffer-name claude-code-program program-switches)
           (error
            (error "error starting claude")
            (signal 'claude-start-error "error starting claude"))))
 
-      ;; Set eat repl faces to inherit from claude-code-repl-face
+      ;; Set terminal faces to inherit from claude-code-repl-face
       (claude-code--setup-repl-faces)
-
-      ;; Add advice to only nottify claude on window width changes, to avoid uncessary flickering
-      (advice-add 'eat--adjust-process-window-size :around #'claude-code--eat-adjust-process-window-size-advice)
-
-      ;; Set our custom synchronize scroll function
-      (setq-local eat--synchronize-scroll-function #'claude-code--synchronize-scroll)
 
       ;; Add window configuration change hook to keep buffer scrolled to bottom
       (add-hook 'window-configuration-change-hook #'claude-code--on-window-configuration-change nil t)
 
       ;; fix wonky initial terminal layout that happens sometimes if we show the buffer before claude is ready
-      (sleep-for claude-code-startup-delay)
+      ;; Only needed for eat terminal backend
+      (when (eq claude-code-terminal-backend 'eat)
+        (sleep-for claude-code-startup-delay))
 
       ;; Add cleanup hook to remove directory mappings when buffer is killed
       (add-hook 'kill-buffer-hook #'claude-code--cleanup-directory-mapping nil t)
@@ -839,7 +1116,7 @@ having to switch to the REPL buffer."
   (interactive)
   (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
       (with-current-buffer claude-code-buffer
-        (eat-term-send-string eat-terminal (kbd "ESC"))
+        (claude-code--term-send-key "<escape>")
         (display-buffer claude-code-buffer))
     (claude-code--show-not-running-message)))
 
@@ -854,7 +1131,7 @@ Claude uses Shift-Tab to cycle through:
   (interactive)
   (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
       (with-current-buffer claude-code-buffer
-        (eat-term-send-string eat-terminal "\e[Z")
+        (claude-code--term-send-key "\e[Z")
         (display-buffer claude-code-buffer))
     (claude-code--show-not-running-message)))
 
@@ -865,7 +1142,7 @@ Sends <escape><escape> to the Claude Code REPL."
   (interactive)
   (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
       (with-current-buffer claude-code-buffer
-        (eat-term-send-string eat-terminal "")
+        (claude-code--send-key "")
         (display-buffer claude-code-buffer))
     (error "Claude is not running")))
 
@@ -902,9 +1179,7 @@ Use `claude-code-exit-read-only-mode' to switch back to normal mode."
   (interactive)
   (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
       (with-current-buffer claude-code-buffer
-        (eat-emacs-mode)
-        (setq-local eat-invisible-cursor-type claude-code-read-only-mode-cursor-type)
-        (eat--set-cursor nil :invisible)
+        (claude-code--term-enter-read-only-mode)
         (message "Claude read-only mode enabled"))
     (claude-code--show-not-running-message)))
 
@@ -914,9 +1189,7 @@ Use `claude-code-exit-read-only-mode' to switch back to normal mode."
   (interactive)
   (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
       (with-current-buffer claude-code-buffer
-        (eat-semi-char-mode)
-        (setq-local eat-invisible-cursor-type nil)
-        (eat--set-cursor nil :invisible)
+        (claude-code--term-exit-read-only-mode)
         (message "Claude semi-char mode enabled"))
     (claude-code--show-not-running-message)))
 
@@ -931,9 +1204,9 @@ enter Claude commands."
   (interactive)
   (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
       (with-current-buffer claude-code-buffer
-        (if eat--semi-char-mode
-            (claude-code-read-only-mode)
-          (claude-code-exit-read-only-mode)))
+        (if (claude-code--term-in-read-only-mode-p)
+            (claude-code-exit-read-only-mode)
+          (claude-code-read-only-mode)))
     (claude-code--show-not-running-message)))
 
 ;;;; Mode definition
