@@ -173,6 +173,7 @@ outputs."
 
 ;; Forward declare vterm functions
 (defvar vterm-shell)
+(defvar vterm-max-scrollback)
 (declare-function vterm-mode "vterm")
 (declare-function vterm-send-string "vterm")
 (declare-function vterm-send-return "vterm")
@@ -302,6 +303,24 @@ Raises an error if the backend cannot be loaded."
 
 ;;;; Terminal Backend Abstraction Layer
 
+(defun claude-code--term-in-read-only-mode-p ()
+  "Check if the terminal is currently in read-only mode.
+
+This function checks the backend-specific state to determine
+if the terminal is in read-only/copy mode."
+  (pcase claude-code-terminal-backend
+    ('eat (not eat--semi-char-mode))
+    ('vterm (and (boundp 'vterm-copy-mode) vterm-copy-mode))))
+
+(defun claude-code--term-setup-buffer ()
+  "Setup terminal buffer based on the configured backend.
+
+This function dispatches to the appropriate backend-specific
+setup function."
+  (pcase claude-code-terminal-backend
+    ('eat (claude-code--eat-setup-buffer))
+    ('vterm (claude-code--vterm-setup-buffer))))
+
 (defun claude-code--term-make (buffer-name program switches)
   "Create a terminal using the configured backend.
 
@@ -365,6 +384,21 @@ implementation based on `claude-code-terminal-backend'."
 
 ;;;; Eat Backend Implementation
 
+(defun claude-code--eat-setup-buffer ()
+  "Setup eat-specific buffer settings."
+  (setq-local eat-term-name claude-code-term-name)
+  ;; Turn off shell integration, as we don't need it for Claude
+  (setq-local eat-enable-directory-tracking t
+              eat-enable-shell-command-history nil
+              eat-enable-shell-prompt-annotation nil)
+  ;; Conditionally disable scrollback truncation
+  (when claude-code-never-truncate-claude-buffer
+    (setq-local eat-term-scrollback-size nil))
+  ;; Add advice to only notify claude on window width changes
+  (advice-add 'eat--adjust-process-window-size :around #'claude-code--eat-adjust-process-window-size-advice)
+  ;; Set our custom synchronize scroll function
+  (setq-local eat--synchronize-scroll-function #'claude-code--synchronize-scroll))
+
 (defun claude-code--eat-make (buffer-name program switches)
   "Create an eat terminal.
 
@@ -401,6 +435,14 @@ SWITCHES are command line arguments for the program."
   (eat--set-cursor nil :invisible))
 
 ;;;; Vterm Backend Implementation
+
+(defun claude-code--vterm-setup-buffer ()
+  "Setup vterm-specific buffer settings."
+  ;; Vterm doesn't need as much setup as eat
+  ;; Most terminal behavior is handled internally by vterm
+  (setq-local vterm-max-scrollback (if claude-code-never-truncate-claude-buffer
+                                        1000000  ; Very large scrollback
+                                      vterm-max-scrollback)))
 
 (defun claude-code--vterm-make (_buffer-name program switches)
   "Create a vterm terminal.
@@ -662,24 +704,36 @@ Returns the selected Claude buffer or nil."
 
 Applies the `claude-code-repl-face' to all terminal-related faces
 for consistent appearance."
-  (dolist (face '(eat-shell-prompt-annotation-running
-                  eat-shell-prompt-annotation-success
-                  eat-shell-prompt-annotation-failure
-                  eat-term-bold
-                  eat-term-faint
-                  eat-term-italic
-                  eat-term-slow-blink
-                  eat-term-fast-blink))
-    (funcall 'face-remap-add-relative face :inherit 'claude-code-repl-face))
-  (dotimes (i 10)
-    (let ((face (intern (format "eat-term-font-%d" i))))
-      (funcall 'face-remap-add-relative face :inherit 'claude-code-repl-face)))
-  (dotimes (i 10)
-    (let ((face (intern (format "eat-term-font-%d" i))))
-      (funcall 'face-remap-add-relative face :inherit 'claude-code-repl-face)))
+  (pcase claude-code-terminal-backend
+    ('eat
+     (dolist (face '(eat-shell-prompt-annotation-running
+                     eat-shell-prompt-annotation-success
+                     eat-shell-prompt-annotation-failure
+                     eat-term-bold
+                     eat-term-faint
+                     eat-term-italic
+                     eat-term-slow-blink
+                     eat-term-fast-blink))
+       (funcall 'face-remap-add-relative face :inherit 'claude-code-repl-face))
+     (dotimes (i 10)
+       (let ((face (intern (format "eat-term-font-%d" i))))
+         (funcall 'face-remap-add-relative face :inherit 'claude-code-repl-face)))
+     (face-remap-add-relative 'eat-term-faint :foreground "#999999" :weight 'light))
+    ('vterm
+     ;; vterm uses standard Emacs faces for colors
+     (dolist (face '(vterm-color-black
+                     vterm-color-red
+                     vterm-color-green
+                     vterm-color-yellow
+                     vterm-color-blue
+                     vterm-color-magenta
+                     vterm-color-cyan
+                     vterm-color-white))
+       (when (facep face)
+         (funcall 'face-remap-add-relative face :inherit 'claude-code-repl-face)))))
+  ;; Common face setup for both backends
   (buffer-face-set :inherit 'claude-code-repl-face)
-  (face-remap-add-relative 'nobreak-space :underline nil)
-  (face-remap-add-relative 'eat-term-faint :foreground "#999999" :weight 'light))
+  (face-remap-add-relative 'nobreak-space :underline nil))
 
 (defun claude-code--synchronize-scroll (windows)
   "Synchronize scrolling and point between terminal and WINDOWS.
@@ -753,7 +807,7 @@ ARGS is passed to ORIG-FUN unchanged."
           (if width-changed result nil)))))
 
 (defun claude-code (&optional arg)
-  "Start Claude in an eat terminal and enable `claude-code-mode'.
+  "Start Claude in a terminal and enable `claude-code-mode'.
 
 If current buffer belongs to a project start Claude in the project's
 root directory. Otherwise start in the directory of the current buffer
@@ -765,8 +819,8 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), continue
 With triple prefix ARG (\\[universal-argument] \\[universal-argument] \\[universal-argument]), prompt for the project directory."
   (interactive "P")
 
-  ;; Forward declare variables to avoid compilation warnings
-  (require 'eat)
+  ;; Ensure terminal backend is available
+  (claude-code--ensure-terminal-backend)
 
   (let* ((dir (if (equal arg '(64))  ; Triple prefix
                   (read-directory-name "Project directory: ")
@@ -793,35 +847,22 @@ With triple prefix ARG (\\[universal-argument] \\[universal-argument] \\[univers
          (program-switches (if continue
                                (append claude-code-program-switches '("--continue"))
                              claude-code-program-switches)))
-    ;; Start the eat process
+    ;; Start the terminal process
     (with-current-buffer buffer
       (cd dir)
-      (setq-local eat-term-name claude-code-term-name)
-
-      ;; Turn off shell integration, as we don't need it for Claude
-      (setq-local eat-enable-directory-tracking t
-                  eat-enable-shell-command-history nil
-                  eat-enable-shell-prompt-annotation nil)
       
-      ;; Conditionally disable scrollback truncation
-      (when claude-code-never-truncate-claude-buffer
-        (setq-local eat-term-scrollback-size nil))
+      ;; Setup backend-specific buffer settings
+      (claude-code--term-setup-buffer)
 
       (let ((process-adaptive-read-buffering nil))
         (condition-case nil
-            (apply #'eat-make trimmed-buffer-name claude-code-program nil program-switches)
+            (claude-code--term-make trimmed-buffer-name claude-code-program program-switches)
           (error
            (error "error starting claude")
            (signal 'claude-start-error "error starting claude"))))
 
-      ;; Set eat repl faces to inherit from claude-code-repl-face
+      ;; Set terminal faces to inherit from claude-code-repl-face
       (claude-code--setup-repl-faces)
-
-      ;; Add advice to only nottify claude on window width changes, to avoid uncessary flickering
-      (advice-add 'eat--adjust-process-window-size :around #'claude-code--eat-adjust-process-window-size-advice)
-
-      ;; Set our custom synchronize scroll function
-      (setq-local eat--synchronize-scroll-function #'claude-code--synchronize-scroll)
 
       ;; Add window configuration change hook to keep buffer scrolled to bottom
       (add-hook 'window-configuration-change-hook #'claude-code--on-window-configuration-change nil t)
@@ -1130,9 +1171,9 @@ enter Claude commands."
   (interactive)
   (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
       (with-current-buffer claude-code-buffer
-        (if eat--semi-char-mode
-            (claude-code-read-only-mode)
-          (claude-code-exit-read-only-mode)))
+        (if (claude-code--term-in-read-only-mode-p)
+            (claude-code-exit-read-only-mode)
+          (claude-code-read-only-mode)))
     (claude-code--show-not-running-message)))
 
 ;;;; Mode definition
