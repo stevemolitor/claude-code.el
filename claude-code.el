@@ -185,7 +185,6 @@ outputs."
 (declare-function vterm-send-backspace "vterm")
 (declare-function vterm-send-key "vterm")
 (declare-function vterm-copy-mode "vterm")
-(declare-function vterm--set-title "vterm")
 (declare-function vterm--window-adjust-process-window-size "vterm")
 
 ;; Forward declare flycheck functions
@@ -448,15 +447,6 @@ SWITCHES are command line arguments for the program."
 (defvar claude-code--window-widths (make-hash-table :test 'eq :weakness 'key)
   "Hash table mapping windows to their last known widths.")
 
-(defun claude-code--vterm-set-title-override (_title)
-  "Override vterm's title setting to prevent buffer renaming.
-
-This function is used as advice to prevent vterm from changing
-the buffer name when terminal programs set the window title.
-The _TITLE argument is ignored."
-  ;; Do nothing - we want to keep our buffer name
-  nil)
-
 (defun claude-code--vterm-window-size-change (_frame)
   "Handle window size change for vterm buffers.
   
@@ -490,9 +480,7 @@ is ignored as we operate on the current buffer."
   (advice-add 'vterm--window-adjust-process-window-size
               :around #'claude-code--vterm-adjust-process-window-size-advice)
   ;; Add post-command hook to synchronize scrolling
-  (add-hook 'post-command-hook #'claude-code--vterm-synchronize-scroll nil t)
-  ;; Prevent vterm from changing buffer name via title updates
-  (advice-add 'vterm--set-title :override #'claude-code--vterm-set-title-override))
+  (add-hook 'post-command-hook #'claude-code--vterm-synchronize-scroll nil t))
 
 (defun claude-code--vterm-make (_buffer-name program switches)
   "Create a vterm terminal.
@@ -778,7 +766,6 @@ the remembered directory->buffer associations."
              claude-code--directory-buffer-map))
   ;; Clean up vterm-specific advice if using vterm backend
   (when (eq claude-code-terminal-backend 'vterm)
-    (advice-remove 'vterm--set-title #'claude-code--vterm-set-title-override)
     (advice-remove 'vterm--window-adjust-process-window-size
                    #'claude-code--vterm-adjust-process-window-size-advice)))
 
