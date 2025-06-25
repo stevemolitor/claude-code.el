@@ -2,7 +2,7 @@
 
 All notable changes to claude-code.el will be documented in this file.
 
-## [Unreleased]
+## [0.3.9]
 
 ### Added
 
@@ -50,11 +50,6 @@ All notable changes to claude-code.el will be documented in this file.
   - Removed support for continuing conversations (use `claude-code-continue` instead)
 - `claude-code-kill` no longer accepts prefix arguments
   - Use the new `claude-code-kill-all` command to kill all instances
-
-### Fixed
-
-- Fixed startup error "Symbol's function definition is void: (setf eat-term-parameter)" that occurred when starting claude-code for the first time
-  - Added proper compile-time handling of eat package dependencies
 
 ## [0.3.8]
 
