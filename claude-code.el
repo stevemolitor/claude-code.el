@@ -722,7 +722,6 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
 
       ;; Add notification handler if notifications are enabledd
       (when claude-code-enable-notifications
-        ;; (setq-local eat--bell #'claude-code--notify)
         (eval '(setf (eat-term-parameter eat-terminal 'ring-bell-function) #'claude-code--notify)))
 
       ;; fix wonky initial terminal layout that happens sometimes if we show the buffer before claude is ready
