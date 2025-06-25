@@ -870,6 +870,9 @@ Returns a string with the errors or a message if no errors found."
     ;; Inherit parent eat keymap
     (set-keymap-parent map (current-local-map))
 
+    ;; C-g for escape
+    (define-key map (kbd "C-g") "")
+
     ;; Configure key bindings based on user preference
     (pcase claude-code-newline-keybinding-style
       ('default
@@ -1212,10 +1215,6 @@ Use `claude-code-exit-read-only-mode' to switch back to normal mode."
 
    ;; avoid double-cursor effect
    (eat--set-cursor nil :invisible)
-
-   (let ((cursor-pos (claude-code--get-cursor-position)))
-     (when cursor-pos
-       (goto-char cursor-pos)))
    (message "Claude read-only mode enabled")))
 
 ;;;###autoload
