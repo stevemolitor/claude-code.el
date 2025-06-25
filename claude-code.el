@@ -724,6 +724,13 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
       (when claude-code-enable-notifications
         (eval '(setf (eat-term-parameter eat-terminal 'ring-bell-function) #'claude-code--notify)))
 
+      ;; Disable vertical scroll bar in claude buffer
+      (setq-local vertical-scroll-bar nil)
+
+      ;; Disable window fringes in claude buffer
+      (setq left-fringe-width 0)
+      (setq right-fringe-width 0)
+
       ;; fix wonky initial terminal layout that happens sometimes if we show the buffer before claude is ready
       (sleep-for claude-code-startup-delay)
       
@@ -732,7 +739,14 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
 
       ;; run start hooks and show the claude buffer
       (run-hooks 'claude-code-start-hook)
-      (display-buffer buffer))
+
+      ;; Display buffer. Set window parameters here, as they can get overriden if set earlier when display-buffer is called.
+      ;; Claude provides a litte space on the right but not on the left, so add a 1 column left margin and a 0 right margin.
+      ;; Turn off frignes in the claude buffer.
+      (display-buffer buffer '(window-parameters . ((left-margin-width . 0)
+                                                    (right-margin-width . 0)
+                                                    (left-fringe-width . 0)
+                                                    (right-fringe-width . 0)))))
     (when switch-after
       (switch-to-buffer buffer))))
 
