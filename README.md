@@ -5,11 +5,17 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 ## Features
 
 - Start, stop, and toggle Claude Code sessions directly from Emacs
+- Continue and resume previous Claude Code conversations
 - Support for multiple Claude instances across different projects and directories
-- Send commands to Claude with or without file/line context
+- Send commands or region to Claude from normal Emacs buffers or the minibuffer, with or without
+  file/line context 
+- Send quick responses to Claude from Emacs minibuffer - cycle accept edits / plan mode, quick commands to send yes, no, 1, 2, 3, etc to Claude.
 - Quick access to all Claude slash commands via transient menus
-- Customizable key bindings and appearance settings
+- Fix error at point - Send flycheck or flymake error at point to Claude, have Claude fix it.
+- Commands to show, hide, switch to Claude terminal buffers
+- Claude terminal niceties - `C-g` to quit/escape, 3 options for entering newlines and submitting.
 - Desktop notifications when Claude finishes processing and awaits input
+- Customizable key bindings and appearance settings
 
 ## Installation
 
