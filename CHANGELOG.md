@@ -2,13 +2,78 @@
 
 All notable changes to claude-code.el will be documented in this file.
 
-## [0.3.9]
+## [Unreleased]
+
+### Changed
+- `claude-code-eat-never-truncate-claude-buffer` is now obsolete
+  - Setting it to t can consume excessive memory and cause performance issues with long sessions
+  - The variable will be removed in a future release
+
+### Added
+
+- New `claude-code-eat` customization group for eat backend specific settings
+  - All eat-specific faces moved to this group with `claude-code-eat-` prefix
+  - Faces can be customized via `M-x customize-group RET claude-code-eat RET`
+- vterm support
+  - New `claude-code-terminal-backend` customization variable to choose between eat (default) and vterm
+  - New `claude-code-vterm` customization group for vterm-specific settings
+  - `claude-code-vterm-buffer-multiline-output` prevents flickering when Claude redraws multi-line input boxes
+- New `claude-code-newline-keybinding-style` customization variable to configure how return and modifier keys behave in Claude buffers
+  - `'default` (default): M-return inserts newline, RET sends message
+  - `'newline-on-return`: RET inserts newline, M-return sends message
+  - `'newline-on-shift-return`: RET sends message, S-return inserts newline
+  - `'super-return-to-send`: RET inserts newline, s-return sends message
+- Single ESC key now works as expected in Claude buffers for canceling operations
+- C-g can be used as an alternative to ESC for canceling in Claude buffers
+- New `claude-code-confirm-kill` customization variable to control kill confirmation prompts
+  - When `t` (default), prompts for confirmation before killing Claude instances
+  - When `nil`, kills Claude instances without confirmation
+- New `claude-code-continue` command to explicitly continue previous conversations
+  - Bound to `C-c c C` in the command map
+  - Supports same prefix arguments as `claude-code` command
+- New `claude-code-resume` command to resume specific past sessions
+  - Bound to `C-c c R` in the command map
+  - Allows resuming any past session from an interactive list
+  - Can programmatically resume a specific session by ID
+  - Supports same prefix arguments as `claude-code` command
+- New `claude-code-start-in-directory` command for convenience
+  - Bound to `C-c c d` in the command map
+  - Always prompts for directory (equivalent to `C-u C-u claude-code`)
+  - With prefix arg, switches to buffer after creating
+- New `claude-code-new-instance` command to create a new Claude instance with a custom name
+  - Bound to `C-c c i` in the command map
+  - Always prompts for instance name (unlike `claude-code` which uses "default" for the first instance)
+  - Supports same prefix arguments as `claude-code` command
+- New `claude-code-select-buffer` command to select from all Claude instances
+  - Bound to `C-c c B` in the command map
+  - Shows all Claude instances across all projects and directories
+  - Provides a dedicated command for global instance selection (similar to `C-u claude-code-switch-to-buffer`)
+- New `claude-code-kill-all` command to kill all Claude instances
+  - Bound to `C-c c K` in the command map
+  - Kills all Claude instances across all projects and directories
+  - Provides dedicated functionality previously available via `C-u claude-code-kill`
+- New notification system for when Claude finishes processing and awaits input
+  - `claude-code-enable-notifications` customization variable to toggle notifications (default: t)
+  - `claude-code-notification-function` customization variable to set custom notification behavior
+  - Default notification displays a message and pulses the modeline for visual feedback
+- New `claude-code-optimize-window-resize` customization variable to prevent unnecessary terminal reflows
+  - When enabled (default), terminal only reflows when window width changes, not height
+  - Improves performance and reduces visual artifacts when splitting windows vertically
+
+### Changed
+
+- Renamed internal variable from `claude-code-key-binding-style` to `claude-code-newline-keybinding-style` for clarity
+- Simplified `claude-code` command prefix arguments:
+  - Single prefix (`C-u`) now switches to buffer after creating
+  - Double prefix (`C-u C-u`) now prompts for project directory
+  - Removed support for continuing conversations (use `claude-code-continue` instead)
+- `claude-code-kill` no longer accepts prefix arguments
+  - Use the new `claude-code-kill-all` command to kill all instances
 
 ### Fixed
 
-- Fixed buffer jumping issue in long Claude sessions where the buffer would suddenly jump to the top
-  - Improved `claude-code--synchronize-scroll` to center the cursor when not visible instead of jumping to terminal beginning
-  - This prevents disorienting jumps that become more frequent as sessions grow longer
+- Fixed startup error "Symbol's function definition is void: (setf eat-term-parameter)" that occurred when starting claude-code for the first time
+  - Added proper compile-time handling of eat package dependencies
 
 ## [0.3.8]
 
