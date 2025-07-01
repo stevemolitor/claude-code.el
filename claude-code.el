@@ -369,7 +369,7 @@ for each directory across multiple invocations.")
    ["Additional Commands"
     ("e" "Terminal" (lambda () (interactive) (claude-code--do-send-command "/terminal")))
     ("m" "Theme" (lambda () (interactive) (claude-code--do-send-command "/theme")))
-    ("v" "Vim" (lambda () (interactive) (claude-code--do-send-command "/vim")))
+    ("V" "Vim" (lambda () (interactive) (claude-code--do-send-command "/vim")))
     ("a" "Approved" (lambda () (interactive) (claude-code--do-send-command "/approved")))
     ("l" "Logout" (lambda () (interactive) (claude-code--do-send-command "/logout")))
     ("g" "Login" (lambda () (interactive) (claude-code--do-send-command "/login")))]
