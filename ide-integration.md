@@ -29,19 +29,19 @@ The implementation will add IDE protocol support to claude-code.el, enabling bid
 
 ### Architecture
 
-The implementation will follow a modular architecture similar to claude-code-ide.el:
+The implementation will follow a modular architecture:
 
 ```
 claude-code.el (main package)
-├── claude-code-ide-ws.el (WebSocket server implementation)
-├── claude-code-ide-mcp.el (MCP protocol handler)
-├── claude-code-ide-tools.el (Tool implementations)
-└── claude-code-ide-selection.el (Selection tracking)
+├── claude-code-ws.el (WebSocket server implementation)
+├── claude-code-mcp.el (MCP protocol handler)
+├── claude-code-tools.el (Tool implementations)
+└── claude-code-selection.el (Selection tracking)
 ```
 
 ### Key Components
 
-#### 1. WebSocket Server (`claude-code-ide-ws.el`)
+#### 1. WebSocket Server (`claude-code-ws.el`)
 
 **Purpose**: Create and manage WebSocket servers for Claude Code connections.
 
@@ -59,15 +59,15 @@ claude-code.el (main package)
 **Key Functions**:
 ```elisp
 ;; Create WebSocket server
-(cl-defun claude-code-ide-ws-create-server (&key port on-open on-message on-close on-error)
+(cl-defun claude-code-ws-create-server (&key port on-open on-message on-close on-error)
   ...)
 
 ;; Send message to client
-(cl-defun claude-code-ide-ws-send (client message)
+(cl-defun claude-code-ws-send (client message)
   ...)
 
 ;; Close client connection
-(cl-defun claude-code-ide-ws-close (client &optional code reason)
+(cl-defun claude-code-ws-close (client &optional code reason)
   ...)
 ```
 
@@ -77,18 +77,18 @@ claude-code.el (main package)
      ```elisp
      ;; In *scratch* buffer or M-x eval-expression
      ;; First, load the WebSocket module (once implemented)
-     (require 'claude-code-ide-ws)
+     (require 'claude-code-ws)
      
      ;; Create a test server on port 12345
      (setq test-server 
-       (claude-code-ide-ws-create-server
+       (claude-code-ws-create-server
          :port 12345
          :on-open (lambda (client)
                     (message "Client connected: %s" client))
          :on-message (lambda (client message)
                        (message "Received: %s" message)
                        ;; Echo the message back
-                       (claude-code-ide-ws-send client 
+                       (claude-code-ws-send client 
                          (format "Echo: %s" message)))
          :on-close (lambda (client code reason)
                      (message "Client disconnected: %s %s" code reason))
@@ -96,7 +96,7 @@ claude-code.el (main package)
                      (message "Error: %s" error))))
      
      ;; Verify server is running
-     (message "Server started on port %d" (claude-code-ide-ws-server-port test-server))
+     (message "Server started on port %d" (claude-code-ws-server-port test-server))
      ```
    
    - Alternatively, create a test helper function:
@@ -106,14 +106,14 @@ claude-code.el (main package)
        (interactive)
        (let ((port (read-number "Port: " 12345)))
          (setq claude-code-test-server
-           (claude-code-ide-ws-create-server
+           (claude-code-ws-create-server
              :port port
              :on-open (lambda (client)
                         (message "[WS] Client connected from %s" 
                                 (process-contact client :remote)))
              :on-message (lambda (client message)
                            (message "[WS] Received: %s" message)
-                           (claude-code-ide-ws-send client 
+                           (claude-code-ws-send client 
                              (json-encode `((echo . ,message)
                                           (timestamp . ,(current-time-string))))))
              :on-close (lambda (client code reason)
@@ -147,9 +147,9 @@ claude-code.el (main package)
    
    - To stop the test server:
      ```elisp
-     (claude-code-ide-ws-stop-server test-server)
+     (claude-code-ws-stop-server test-server)
      ;; or
-     (claude-code-ide-ws-stop-server claude-code-test-server)
+     (claude-code-ws-stop-server claude-code-test-server)
      ```
 
 2. **Handshake Test**:
@@ -166,7 +166,7 @@ claude-code.el (main package)
    - Enable debug logging to see all incoming/outgoing frames
    - Check *Messages* buffer for WebSocket activity
 
-#### 2. MCP Protocol Handler (`claude-code-ide-mcp.el`)
+#### 2. MCP Protocol Handler (`claude-code-mcp.el`)
 
 **Purpose**: Implement the Model Context Protocol for Claude Code.
 
@@ -183,21 +183,21 @@ claude-code.el (main package)
 **Key Functions**:
 ```elisp
 ;; Start MCP server for a Claude instance
-(cl-defun claude-code-ide-mcp-start (&key project-dir instance-name buffer)
+(cl-defun claude-code-mcp-start (&key project-dir instance-name buffer)
   ...)
 
 ;; Handle incoming JSON-RPC message
-(cl-defun claude-code-ide-mcp-handle-message (session client message)
+(cl-defun claude-code-mcp-handle-message (session client message)
   ...)
 
 ;; Send notification to Claude
-(cl-defun claude-code-ide-mcp-notify (session method params)
+(cl-defun claude-code-mcp-notify (session method params)
   ...)
 ```
 
 **Session Structure**:
 ```elisp
-(cl-defstruct claude-code-ide-session
+(cl-defstruct claude-code-session
   server           ; WebSocket server
   client           ; Connected client (if any)
   port             ; Server port
@@ -231,7 +231,7 @@ claude-code.el (main package)
    - Monitor *Claude IDE Debug* buffer for all messages
    - Verify JSON-RPC request/response pairs match
 
-#### 3. Tool Implementations (`claude-code-ide-tools.el`)
+#### 3. Tool Implementations (`claude-code-tools.el`)
 
 **Purpose**: Implement MCP tools that Claude can call.
 
@@ -277,10 +277,10 @@ claude-code.el (main package)
 
 **Tool Registration**:
 ```elisp
-(defvar claude-code-ide-tools
-  '((openFile . claude-code-ide-tool-open-file)
-    (openDiff . claude-code-ide-tool-open-diff)
-    (getCurrentSelection . claude-code-ide-tool-get-current-selection)
+(defvar claude-code-tools
+  '((openFile . claude-code-tool-open-file)
+    (openDiff . claude-code-tool-open-diff)
+    (getCurrentSelection . claude-code-tool-get-current-selection)
     ;; ... etc
     ))
 ```
@@ -315,7 +315,7 @@ claude-code.el (main package)
    - Monitor tool invocations and responses
    - Verify parameters are correctly parsed
 
-#### 4. Selection Tracking (`claude-code-ide-selection.el`)
+#### 4. Selection Tracking (`claude-code-selection.el`)
 
 **Purpose**: Track editor state changes and notify Claude.
 
@@ -329,11 +329,11 @@ claude-code.el (main package)
 **Key Functions**:
 ```elisp
 ;; Start tracking for a session
-(cl-defun claude-code-ide-selection-start (session)
+(cl-defun claude-code-selection-start (session)
   ...)
 
 ;; Send selection update
-(cl-defun claude-code-ide-selection-notify (session)
+(cl-defun claude-code-selection-notify (session)
   ...)
 ```
 
@@ -395,7 +395,7 @@ Modify `claude-code--start` to:
 
 Add to Claude buffers:
 ```elisp
-(defvar-local claude-code-ide-session nil
+(defvar-local claude-code-session nil
   "IDE protocol session for this Claude instance.")
 ```
 
@@ -416,17 +416,17 @@ Add new customization options:
   :type 'boolean
   :group 'claude-code)
 
-(defcustom claude-code-ide-port-min 10000
+(defcustom claude-code-port-min 10000
   "Minimum port number for IDE WebSocket server."
   :type 'integer
   :group 'claude-code)
 
-(defcustom claude-code-ide-port-max 65535
+(defcustom claude-code-port-max 65535
   "Maximum port number for IDE WebSocket server."
   :type 'integer
   :group 'claude-code)
 
-(defcustom claude-code-ide-selection-delay 0.05
+(defcustom claude-code-selection-delay 0.05
   "Delay in seconds before sending selection updates."
   :type 'float
   :group 'claude-code)
