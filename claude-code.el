@@ -130,6 +130,18 @@ resizing."
   :type 'boolean
   :group 'claude-code)
 
+(defcustom claude-code-sticky-window nil
+  "Whether to make Claude Code windows sticky (dedicated).
+
+When non-nil, Claude Code windows are dedicated to their buffers,
+preventing them from being automatically reused by other buffers
+or buried by window management commands. This keeps the Claude
+buffer visible and accessible.
+
+When nil, Claude Code windows behave like normal Emacs windows."
+  :type 'boolean
+  :group 'claude-code)
+
 ;;;;; Eat terminal customizations
 ;; Eat-specific terminal faces
 (defface claude-code-eat-prompt-annotation-running-face
@@ -1148,14 +1160,17 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
       (setq-local vertical-scroll-bar nil)
 
       ;; Display buffer, setting window parameters
-      (display-buffer buffer '((display-buffer-below-selected)))
-      
-      ;; turn off fringes and margins in the Claude buffer
-      (let ((window (get-buffer-window buffer)))
-        (set-window-parameter window 'left-margin-width 0)
-        (set-window-parameter window 'right-margin-width 0)
-        (set-window-parameter window 'left-fringe-width 0)
-        (set-window-parameter window 'right-fringe-width 0)))
+      (let ((window (display-buffer buffer '((display-buffer-below-selected)))))
+        (when window
+          ;; turn off fringes and margins in the Claude buffer
+          (set-window-parameter window 'left-margin-width 0)
+          (set-window-parameter window 'right-margin-width 0)
+          (set-window-parameter window 'left-fringe-width 0)
+          (set-window-parameter window 'right-fringe-width 0)
+          ;; Make the window dedicated if sticky mode is enabled
+          (when claude-code-sticky-window
+            (set-window-dedicated-p window t)
+            (set-window-parameter window 'no-delete-other-windows t)))))
 
     ;; switch to the Claude buffer if asked to
     (when switch-after
@@ -1469,7 +1484,10 @@ If the Claude buffer doesn't exist, create it."
     (if claude-code-buffer
         (if (get-buffer-window claude-code-buffer)
             (delete-window (get-buffer-window claude-code-buffer))
-          (display-buffer claude-code-buffer))
+          (let ((window (display-buffer claude-code-buffer '((display-buffer-below-selected)))))
+            (when claude-code-sticky-window
+              (set-window-dedicated-p window t)
+              (set-window-parameter window 'no-delete-other-windows t))))
       (claude-code--show-not-running-message))))
 
 ;;;###autoload

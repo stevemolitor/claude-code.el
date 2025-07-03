@@ -16,6 +16,7 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 - **Mode Cycling** - Quick switch between default, auto-accept edits, and plan modes
 - **Desktop Notifications** - Get notified when Claude finishes processing
 - **Terminal Choice** - Works with both eat and vterm backends
+- **Sticky Windows** - Optional dedicated windows that stay visible and accessible
 - **Fully Customizable** - Configure keybindings, notifications, and display preferences
 
 ## Installation {#installation}
@@ -363,6 +364,13 @@ For Windows, you can use PowerShell to create toast notifications:
 ;; windows vertically, improving performance and reducing visual artifacts.
 ;; Set to nil if you experience issues with terminal display after resizing.
 (setq claude-code-optimize-window-resize t)
+
+;; Enable/disable sticky (dedicated) windows (default is nil)
+;; When enabled, Claude Code windows are dedicated to their buffers,
+;; preventing them from being automatically reused by other buffers
+;; or buried by window management commands. This keeps the Claude
+;; buffer visible and accessible.
+(setq claude-code-sticky-window t)
 ```
 
 ### Customizing Window Position
