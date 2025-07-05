@@ -21,11 +21,18 @@ Please:
 - Don't make any code changes yet, just ultrathink about an implementation plan. Append your plan to this ide-integration.md file.
 
 
-## Implementation Plan
+## Implementation Plan (Revised - Using websocket.el)
 
 ### Overview
 
-The implementation will add IDE protocol support to claude-code.el, enabling bidirectional communication between Claude Code CLI and Emacs. This will allow Claude to understand the current editor context (selections, open files, errors) and perform editor actions (open files, show diffs, etc.).
+The implementation will add IDE protocol support to claude-code.el by leveraging the existing websocket.el package. This enables bidirectional communication between Claude Code CLI and Emacs, allowing Claude to understand the current editor context (selections, open files, errors) and perform editor actions (open files, show diffs, etc.).
+
+### Key Design Decisions
+
+1. **Use websocket.el package** instead of implementing WebSocket protocol from scratch
+2. **All MCP functions use private naming convention** (`claude-code--mcp-*`) since they're internal implementation details
+3. **Selection tracking moved to Phase 1** for immediate user value
+4. **Follow claude-code-ide architecture** while maintaining our unique features
 
 ### Architecture
 
@@ -33,538 +40,234 @@ The implementation will follow a modular architecture:
 
 ```
 claude-code.el (main package)
-├── claude-code-ws.el (WebSocket server implementation)
-├── claude-code-mcp.el (MCP protocol handler)
-├── claude-code-tools.el (Tool implementations)
-└── claude-code-selection.el (Selection tracking)
+├── claude-code-mcp.el (MCP protocol server using websocket.el)
+├── claude-code-selection.el (Selection tracking - implemented early!)
+└── claude-code-tools.el (Tool implementations)
 ```
 
-### Key Components
+### Phase 1: Core Infrastructure with Selection Tracking
 
-#### 1. WebSocket Server (`claude-code-ws.el`)
+#### 1.1 Prerequisites
 
-**Purpose**: Create and manage WebSocket servers for Claude Code connections.
+- Add websocket.el dependency
+- Update Package-Requires: `((emacs "30.0") (transient "0.7.5") (websocket "1.13"))`
+- Users must install websocket from MELPA
 
-**Implementation**:
-- Use `make-network-process` with `:server t` to create TCP server
-- Implement RFC 6455 WebSocket protocol:
-  - HTTP upgrade handshake
-  - Frame parsing (opcode, payload length, masking)
-  - Frame creation for sending messages
-  - Ping/pong handling
-  - Connection management
-- Find free port in range 10000-65535
-- Bind to localhost (127.0.0.1) only for security
+#### 1.2 MCP Server Module (`claude-code-mcp.el`)
 
-**Key Functions**:
-```elisp
-;; Create WebSocket server
-(cl-defun claude-code-ws-create-server (&key port on-open on-message on-close on-error)
-  ...)
-
-;; Send message to client
-(cl-defun claude-code-ws-send (client message)
-  ...)
-
-;; Close client connection
-(cl-defun claude-code-ws-close (client &optional code reason)
-  ...)
-```
-
-**Manual Testing**:
-1. **Server Creation Test**:
-   - Start the WebSocket server on a specific port using Emacs Lisp:
-     ```elisp
-     ;; In *scratch* buffer or M-x eval-expression
-     ;; First, load the WebSocket module (once implemented)
-     (require 'claude-code-ws)
-     
-     ;; Create a test server on port 12345
-     (setq test-server 
-       (claude-code-ws-create-server
-         :port 12345
-         :on-open (lambda (client)
-                    (message "Client connected: %s" client))
-         :on-message (lambda (client message)
-                       (message "Received: %s" message)
-                       ;; Echo the message back
-                       (claude-code-ws-send client 
-                         (format "Echo: %s" message)))
-         :on-close (lambda (client code reason)
-                     (message "Client disconnected: %s %s" code reason))
-         :on-error (lambda (client error)
-                     (message "Error: %s" error))))
-     
-     ;; Verify server is running
-     (message "Server started on port %d" (claude-code-ws-server-port test-server))
-     ```
-   
-   - Alternatively, create a test helper function:
-     ```elisp
-     (defun claude-code-test-websocket-server ()
-       "Start a test WebSocket server for manual testing."
-       (interactive)
-       (let ((port (read-number "Port: " 12345)))
-         (setq claude-code-test-server
-           (claude-code-ws-create-server
-             :port port
-             :on-open (lambda (client)
-                        (message "[WS] Client connected from %s" 
-                                (process-contact client :remote)))
-             :on-message (lambda (client message)
-                           (message "[WS] Received: %s" message)
-                           (claude-code-ws-send client 
-                             (json-encode `((echo . ,message)
-                                          (timestamp . ,(current-time-string))))))
-             :on-close (lambda (client code reason)
-                         (message "[WS] Client disconnected: code=%s reason=%s" 
-                                  code reason))
-             :on-error (lambda (client error)
-                         (message "[WS] Error: %s" error))))
-         (message "Test WebSocket server started on port %d" port)))
-     
-     ;; Run the test
-     (claude-code-test-websocket-server)
-     ```
-   
-   - Use `netstat -an | grep <port>` to verify it's listening on 127.0.0.1:
-     ```bash
-     netstat -an | grep 12345
-     # Should show: tcp4  0  0  127.0.0.1.12345  *.*  LISTEN
-     ```
-   
-   - Use a WebSocket client tool (e.g., `websocat`) to test connection:
-     ```bash
-     # Install websocat first: brew install websocat (macOS)
-     websocat ws://127.0.0.1:12345
-     
-     # Type a message and press Enter
-     Hello from client
-     # Should receive: {"echo":"Hello from client","timestamp":"..."}
-     ```
-   
-   - Monitor the *Messages* buffer in Emacs for server logs
-   
-   - To stop the test server:
-     ```elisp
-     (claude-code-ws-stop-server test-server)
-     ;; or
-     (claude-code-ws-stop-server claude-code-test-server)
-     ```
-
-2. **Handshake Test**:
-   - Connect with proper WebSocket headers
-   - Verify server responds with correct upgrade response
-   - Check that invalid handshakes are rejected
-
-3. **Frame Parsing Test**:
-   - Send various frame types (text, ping, close)
-   - Verify correct parsing and responses
-   - Test with different payload sizes
-
-4. **Debug Output**:
-   - Enable debug logging to see all incoming/outgoing frames
-   - Check *Messages* buffer for WebSocket activity
-
-#### 2. MCP Protocol Handler (`claude-code-mcp.el`)
-
-**Purpose**: Implement the Model Context Protocol for Claude Code.
-
-**Implementation**:
-- JSON-RPC 2.0 message handling
-- Method routing for:
-  - `initialize`: Protocol handshake
-  - `tools/list`: Return available tools
-  - `tools/call`: Execute tool handlers
-  - `prompts/list`: Return prompts (empty initially)
-- Response and error formatting
-- Session state management
-
-**Key Functions**:
-```elisp
-;; Start MCP server for a Claude instance
-(cl-defun claude-code-mcp-start (&key project-dir instance-name buffer)
-  ...)
-
-;; Handle incoming JSON-RPC message
-(cl-defun claude-code-mcp-handle-message (session client message)
-  ...)
-
-;; Send notification to Claude
-(cl-defun claude-code-mcp-notify (session method params)
-  ...)
-```
+**Purpose**: Implement MCP protocol server using websocket.el
 
 **Session Structure**:
 ```elisp
-(cl-defstruct claude-code-session
-  server           ; WebSocket server
-  client           ; Connected client (if any)
-  port             ; Server port
-  project-dir      ; Project directory
-  instance-name    ; Claude instance name
-  buffer           ; Associated Claude buffer
-  deferred         ; Hash table for deferred responses
-  selection-timer  ; Timer for debounced selection updates
-  )
+(cl-defstruct claude-code--mcp-session
+  server          ; websocket server process
+  client          ; connected websocket client
+  port            ; server port
+  project-dir     ; project directory
+  instance-name   ; e.g., "default", "tests"
+  buffer          ; associated Claude terminal buffer
+  deferred        ; hash table for async responses
+  selection-timer ; debounced selection tracking
+  last-selection) ; cache to avoid duplicates
 ```
 
-**Manual Testing**:
-1. **Initialize Handshake Test**:
-   - Start Claude Code with IDE integration enabled
-   - Check lock file exists in `~/.claude/ide/`
-   - Verify Claude connects and sends `initialize` request
-   - Check response contains correct capabilities
-
-2. **Message Routing Test**:
-   - Send test JSON-RPC messages via WebSocket
-   - Verify correct method handlers are called
-   - Test invalid methods return proper errors
-
-3. **Session State Test**:
-   - Create multiple Claude instances
-   - Verify each has separate session
-   - Test session cleanup on disconnect
-
-4. **Debug Output**:
-   - Enable MCP debug mode
-   - Monitor *Claude IDE Debug* buffer for all messages
-   - Verify JSON-RPC request/response pairs match
-
-#### 3. Tool Implementations (`claude-code-tools.el`)
-
-**Purpose**: Implement MCP tools that Claude can call.
-
-**Tools to Implement**:
-
-1. **openFile**
-   - Open file in Emacs
-   - Support line/column positioning
-   - Support text selection (startText/endText)
-
-2. **openDiff** (blocking operation)
-   - Create ediff session
-   - Wait for user accept/reject
-   - Return FILE_SAVED or DIFF_REJECTED
-
-3. **getCurrentSelection**
-   - Return current region text and position
-   - Include file path and line/column info
-
-4. **getOpenEditors**
-   - List all file-visiting buffers
-   - Include modification status
-
-5. **getWorkspaceFolders**
-   - Return project directories
-   - Support multiple projects
-
-6. **getDiagnostics**
-   - Integrate with Flycheck errors
-   - Support Flymake as fallback
-   - Format errors with file/line/message
-
-7. **saveDocument**
-   - Save specified buffer
-   - Return success/failure
-
-8. **close_tab**
-   - Close buffer by name
-   - Handle unsaved changes
-
-9. **checkDocumentDirty**
-   - Check if buffer has unsaved changes
-
-**Tool Registration**:
+**Core Private Functions**:
 ```elisp
-(defvar claude-code-tools
-  '((openFile . claude-code-tool-open-file)
-    (openDiff . claude-code-tool-open-diff)
-    (getCurrentSelection . claude-code-tool-get-current-selection)
-    ;; ... etc
-    ))
+;; Start MCP server for a Claude instance
+(defun claude-code--mcp-start (project-dir instance-name buffer)
+  "Start MCP server for PROJECT-DIR with INSTANCE-NAME in BUFFER."
+  ...)
+
+;; Stop server and cleanup
+(defun claude-code--mcp-stop (session)
+  "Stop MCP server and clean up SESSION."
+  ...)
+
+;; Send notification to Claude
+(defun claude-code--mcp-send-notification (session method params)
+  "Send METHOD notification with PARAMS to Claude."
+  ...)
 ```
 
-**Manual Testing**:
-1. **Individual Tool Tests**:
-   - **openFile**: Ask Claude to "open file.txt line 10"
-     - Verify file opens in Emacs
-     - Check cursor is at line 10
-   - **openDiff**: Ask Claude to show a diff
-     - Verify ediff session starts
-     - Test accepting/rejecting changes
-   - **getCurrentSelection**: Select text and ask Claude "what is selected?"
-     - Verify Claude sees the correct text
-   - **getOpenEditors**: Ask Claude "what files are open?"
-     - Verify list matches open buffers
-   - **getDiagnostics**: Create syntax error and ask Claude "what errors exist?"
-     - Verify Claude sees flycheck/flymake errors
+**Lock File Management**:
+- Location: `~/.claude/ide/[port].lock`
+- Content: `{"pid": 12345, "workspaceFolders": [...], "ideName": "Emacs", "transport": "ws"}`
+- Created on server start, removed on stop
 
-2. **Tool Error Handling**:
-   - Test tools with invalid parameters
-   - Verify proper error responses
-   - Check non-existent files return errors
+#### 1.3 Selection Tracking Module (`claude-code-selection.el`)
 
-3. **Blocking Tool Test**:
-   - Test openDiff waits for user interaction
-   - Verify timeout handling
-   - Test concurrent tool calls
+**Purpose**: Track cursor/selection changes and notify Claude immediately
 
-4. **Debug Output**:
-   - Enable tool debug logging
-   - Monitor tool invocations and responses
-   - Verify parameters are correctly parsed
+**Private Functions**:
+```elisp
+;; Initialize tracking for a session
+(defun claude-code--selection-start (session)
+  "Start selection tracking for SESSION."
+  ...)
 
-#### 4. Selection Tracking (`claude-code-selection.el`)
+;; Post-command hook handler
+(defun claude-code--selection-track-change ()
+  "Track selection changes in current buffer."
+  ...)
 
-**Purpose**: Track editor state changes and notify Claude.
+;; Send update to Claude
+(defun claude-code--selection-send-notification (session)
+  "Send selection update for SESSION."
+  ...)
+```
 
-**Implementation**:
-- Hook into `post-command-hook` for cursor/selection changes
-- Track active buffer changes
-- Debounce updates (50ms delay)
-- Send `selection_changed` notifications
+**Implementation Details**:
+- Hook into `post-command-hook` locally
+- Debounce updates (50ms default)
 - Only track files within project directory
+- Send `selection_changed` notifications
+- Cache last selection to avoid duplicates
 
-**Key Functions**:
-```elisp
-;; Start tracking for a session
-(cl-defun claude-code-selection-start (session)
-  ...)
+### Phase 2: Integration with claude-code.el
 
-;; Send selection update
-(cl-defun claude-code-selection-notify (session)
-  ...)
-```
-
-**Manual Testing**:
-1. **Selection Change Test**:
-   - Move cursor in a file within project
-   - Verify `selection_changed` notifications sent
-   - Check debouncing works (rapid movements = single update)
-
-2. **Buffer Switch Test**:
-   - Switch between buffers
-   - Verify active editor notifications sent
-   - Check only project files trigger updates
-
-3. **Region Selection Test**:
-   - Select text regions
-   - Verify selection info is accurate
-   - Test visual and non-visual selections
-
-4. **Performance Test**:
-   - Make rapid cursor movements
-   - Verify no lag in editor
-   - Check message frequency is reasonable
-
-5. **Debug Output**:
-   - Enable selection tracking debug
-   - Monitor notification frequency
-   - Verify selection coordinates are correct
-
-### Integration with claude-code.el
-
-#### 1. Startup Integration
-
+#### 2.1 Startup Integration
 Modify `claude-code--start` to:
-- Start WebSocket server before launching Claude
-- Create lock file in `~/.claude/ide/[port].lock`
-- Set environment variables:
-  - `CLAUDE_CODE_SSE_PORT`: WebSocket server port
-  - `ENABLE_IDE_INTEGRATION=true`
-- Store session in buffer-local variable
-
-#### 2. Lock File Management
-
-**Location**: `~/.claude/ide/[port].lock`
-
-**Content**:
-```json
-{
-  "pid": 12345,
-  "workspaceFolders": ["/path/to/project"],
-  "ideName": "Emacs",
-  "transport": "ws"
-}
-```
-
-**Cleanup**: Remove on server shutdown or buffer kill
-
-#### 3. Buffer-Local Variables
-
-Add to Claude buffers:
 ```elisp
-(defvar-local claude-code-session nil
-  "IDE protocol session for this Claude instance.")
+;; Add to claude-code--start:
+(when claude-code-enable-ide-integration
+  (require 'claude-code-mcp)
+  (require 'claude-code-selection)
+  (let ((session (claude-code--mcp-start dir instance-name buffer)))
+    (setq-local claude-code--mcp-session session)
+    ;; Set environment variables
+    (setq process-environment
+          (append `(,(format "CLAUDE_CODE_SSE_PORT=%d" 
+                            (claude-code--mcp-session-port session))
+                    "ENABLE_IDE_INTEGRATION=true")
+                  process-environment))))
 ```
-
-#### 4. Cleanup Integration
+#### 2.2 Shutdown Integration
 
 Modify `claude-code--kill-buffer` to:
-- Stop WebSocket server
-- Remove lock file
-- Clean up session resources
-
-### Configuration Options
+```elisp
+;; Add to cleanup:
+(when (and (boundp 'claude-code--mcp-session) 
+           claude-code--mcp-session)
+  (claude-code--mcp-stop claude-code--mcp-session))
+```
+#### 2.3 Configuration
 
 Add new customization options:
-
 ```elisp
 (defcustom claude-code-enable-ide-integration t
-  "Enable IDE integration protocol for Claude Code."
+  "Enable IDE integration for Claude Code."
   :type 'boolean
-  :group 'claude-code)
-
-(defcustom claude-code-port-min 10000
-  "Minimum port number for IDE WebSocket server."
-  :type 'integer
-  :group 'claude-code)
-
-(defcustom claude-code-port-max 65535
-  "Maximum port number for IDE WebSocket server."
-  :type 'integer
   :group 'claude-code)
 
 (defcustom claude-code-selection-delay 0.05
   "Delay in seconds before sending selection updates."
-  :type 'float
+  :type 'number
   :group 'claude-code)
 ```
 
-### Implementation Phases
+### Phase 3: Tool Implementations (`claude-code-tools.el`)
 
-#### Phase 1: Core Infrastructure
-1. Implement WebSocket server with basic frame handling
-2. Implement JSON-RPC message routing
-3. Create session management structure
-4. Add lock file creation/cleanup
-5. Integrate server startup with claude-code--start
+All tool functions use private naming convention:
 
-#### Phase 2: Basic Tools
-1. Implement initialize handshake
-2. Implement tools/list response
-3. Implement simple tools:
-   - getCurrentSelection
-   - getOpenEditors
-   - getWorkspaceFolders
-   - checkDocumentDirty
+#### 3.1 Basic Tools (Priority 1)
+```elisp
+;; Return list of available tools
+(defun claude-code--tool-list ()
+  "Return MCP tools list.")
 
-#### Phase 3: File Operations
-1. Implement openFile with selection support
-2. Implement saveDocument
-3. Implement close_tab
-4. Add proper error handling
+;; Query tools
+(defun claude-code--tool-get-current-selection ()
+  "Return current text selection.")
 
-#### Phase 4: Advanced Features
-1. Implement openDiff with ediff integration
-2. Implement getDiagnostics with Flycheck/Flymake
-3. Add selection change tracking
-4. Implement at_mentioned notifications
+(defun claude-code--tool-get-open-editors ()
+  "Return list of open file buffers.")
 
-#### Phase 5: Polish and Testing
-1. Add comprehensive error handling
-2. Add debug logging capabilities
-3. Test with multiple Claude instances
-4. Ensure proper cleanup on all exit paths
-5. Add documentation
+(defun claude-code--tool-get-workspace-folders ()
+  "Return project directories.")
 
-### Technical Considerations
+(defun claude-code--tool-check-document-dirty (params)
+  "Check if document at PATH is modified.")
+```
 
-#### WebSocket Implementation
-- No external dependencies (implement RFC 6455 directly)
-- Support text frames only (binary not needed)
-- Handle connection errors gracefully
-- Implement proper frame masking for client messages
+#### 3.2 File Operations (Priority 2)
+```elisp
+(defun claude-code--tool-open-file (params)
+  "Open file with optional line/text selection.")
 
-#### Async Operations
-- Use timers for debouncing
-- Consider `make-thread` for blocking operations
-- Ensure UI remains responsive
+(defun claude-code--tool-save-document (params)
+  "Save the specified buffer.")
 
-#### Error Handling
-- Return proper JSON-RPC error responses
-- Log errors for debugging
-- Graceful degradation if IDE integration fails
+(defun claude-code--tool-close-tab (params)
+  "Close buffer by name.")
+```
 
-#### Performance
-- Efficient frame parsing
-- Minimal overhead for selection tracking
-- Lazy initialization of features
+#### 3.3 Advanced Tools (Priority 3)
+```elisp
+(defun claude-code--tool-open-diff (params)
+  "Open ediff session - returns deferred response.")
+
+(defun claude-code--tool-get-diagnostics (params)
+  "Return Flycheck/Flymake errors for file.")
+```
+
+### Implementation Timeline
+
+#### Week 1: Core Infrastructure with Selection Tracking
+- Create claude-code-mcp.el with websocket.el integration
+- Implement session management
+- Add lock file creation/cleanup
+- **Implement selection tracking (claude-code-selection.el)**
+- Basic initialize handler
+- Test with websocat that selection notifications work
+
+#### Week 2: Integration with claude-code.el
+- Modify startup/shutdown flows
+- Add configuration options
+- Test with actual Claude CLI
+- Verify selection tracking in real usage
+
+#### Week 3: Basic Tools
+- Create claude-code-tools.el
+- Implement tools/list handler
+- Add query tools (getCurrentSelection, etc.)
+- Add file operations (openFile, saveDocument)
+
+#### Week 4: Advanced Features
+- Implement openDiff with ediff
+- Add getDiagnostics support
+- Polish and documentation
 
 ### Testing Strategy
 
-1. **Unit Tests**:
-   - WebSocket frame parsing/creation
-   - JSON-RPC message handling
-   - Individual tool functions
+#### Phase 1 Testing (Week 1)
+- Use websocat to verify WebSocket server starts:
+  ```bash
+  websocat ws://127.0.0.1:[port]
+  ```
+- Verify lock file created in `~/.claude/ide/`
+- Check selection_changed notifications sent as cursor moves
+- Test debouncing works (rapid movements = single update)
 
-2. **Integration Tests**:
-   - Full handshake flow
-   - Tool invocation round-trip
-   - Multi-instance scenarios
+#### Integration Testing (Week 2)
+- Test with actual Claude CLI
+- Verify environment variables set correctly
+- Check Claude receives selection updates
+- Test session cleanup on buffer kill
 
-3. **Manual Testing**:
-   - Test with actual Claude Code CLI
-   - Verify all tools work correctly
-   - Test error scenarios
+#### Tool Testing (Week 3-4)
+- Test each tool with Claude commands
+- Verify error handling for invalid params
+- Test deferred responses (openDiff)
+- Check all private functions are inaccessible
 
-#### End-to-End Manual Testing
+### Key Benefits of This Approach
 
-1. **Basic Integration Test**:
-   ```bash
-   # Start Emacs with claude-code
-   # M-x claude-code
-   # Verify in terminal:
-   echo $CLAUDE_CODE_SSE_PORT
-   echo $ENABLE_IDE_INTEGRATION
-   # Check lock file:
-   ls ~/.claude/ide/*.lock
-   cat ~/.claude/ide/*.lock
-   ```
+1. **Immediate Value**: Selection tracking works from day one
+2. **Clean API**: All implementation details are private
+3. **Less Code**: websocket.el handles protocol complexity
+4. **Better Maintainability**: Clear separation of concerns
+5. **Proven Technology**: websocket.el is well-tested
 
-2. **Tool Integration Test**:
-   - Ask Claude: "What file am I looking at?"
-   - Ask Claude: "Open test.txt and go to line 5"
-   - Ask Claude: "Show me the errors in this file"
-   - Ask Claude: "What files are currently open?"
+### Summary
 
-3. **Multi-Instance Test**:
-   - Start multiple Claude instances
-   - Verify each has separate WebSocket server
-   - Test cross-instance isolation
-
-4. **Cleanup Test**:
-   - Kill Claude process
-   - Verify WebSocket server stops
-   - Check lock file is removed
-   - Ensure no orphaned processes
-
-### Documentation
-
-1. **User Documentation**:
-   - How to enable/disable IDE integration
-   - Troubleshooting common issues
-   - Feature overview
-
-2. **Developer Documentation**:
-   - Architecture overview
-   - Adding new tools
-   - Protocol details
-
-### Future Enhancements
-
-1. **Additional Tools**:
-   - Code formatting
-   - Refactoring support
-   - Test running
-
-2. **Enhanced Notifications**:
-   - File change notifications
-   - Build status updates
-   - VCS status changes
-
-3. **Performance Optimizations**:
-   - Connection pooling
-   - Message batching
-   - Compression support
+This revised plan leverages the websocket.el package to provide a cleaner, more maintainable implementation. By moving selection tracking to Phase 1 and using private function naming throughout, we get immediate user value while maintaining a clean API surface.
