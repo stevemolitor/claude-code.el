@@ -2,7 +2,7 @@
 
 ;; Author: Stephen Molitor <stevemolitor@gmail.com>
 ;; Version: 0.2.0
-;; Package-Requires: ((emacs "30.0") (transient "0.7.5"))
+;; Package-Requires: ((emacs "30.0") (transient "0.9.3"))
 ;; Keywords: tools, ai
 ;; URL: https://github.com/stevemolitor/claude-code.el
 
@@ -597,7 +597,7 @@ _BACKEND is the terminal backend type (should be \\='eat)."
 
     ;; C-g for escape
     (define-key map (kbd "C-g") #'claude-code-send-escape)
-    
+
     ;; Configure key bindings based on user preference
     (pcase claude-code-newline-keybinding-style
       ('newline-on-shift-return
@@ -663,7 +663,7 @@ SWITCHES are optional command-line arguments for PROGRAM."
       ;; `pop-to-buffer'. So, show the buffer, start vterm-mode (which
       ;; starts the vterm-shell claude process), and then hide the
       ;; buffer. We'll optionally re-open it later.
-      ;; 
+      ;;
       ;; [TODO] see if there's a cleaner way to do this.
       (pop-to-buffer buffer)
       (vterm-mode)
@@ -1111,7 +1111,7 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
 
          ;; Set process-adaptive-read-buffering to nil to avoid flickering while Claude is processing
          (process-adaptive-read-buffering nil)
-         
+
          ;; Start the terminal process
          (buffer (claude-code--term-make claude-code-terminal-backend buffer-name claude-code-program program-switches)))
 
@@ -1260,7 +1260,7 @@ With single prefix ARG (\\[universal-argument]), switch to buffer after creating
 With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt
 for the project directory."
   (interactive "P")
-  
+
   ;; Call claude-code--start with force-prompt=t
   (claude-code--start arg nil t))
 
