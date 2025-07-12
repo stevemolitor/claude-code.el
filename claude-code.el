@@ -1851,6 +1851,10 @@ and managing Claude sessions."
   :global t
   :group 'claude-code)
 
+;;;; MCP Integration (optional)
+;; Load MCP integration if available
+(require 'claude-code-mcp-integration nil t)
+
 ;;;; Provide the feature
 (provide 'claude-code)
 
