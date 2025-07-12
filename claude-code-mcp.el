@@ -209,6 +209,14 @@ Returns the session object."
   "Handle WebSocket error ERR of TYPE from WS for SESSION."
   (message "MCP WebSocket error (%s): %s" type (error-message-string err)))
 
+;;;; Helper Functions
+
+(defun claude-code--mcp-find-session-by-ws (ws)
+  "Find MCP session that owns WebSocket WS."
+  ;; For now, just return the global test session if available
+  (or (and (boundp 'test-mcp-standalone-session) test-mcp-standalone-session)
+      (and (boundp 'claude-code-test-session) claude-code-test-session)))
+
 ;;;; Message Handling
 
 (defun claude-code--mcp-handle-message (session ws message)
