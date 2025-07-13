@@ -134,7 +134,7 @@ This is intended to be called from Claude Code hooks via emacsclient."
          (emacsclient-cmd (executable-find "emacsclient"))
          (hooks-config `((hooks . ((Notification . [((matcher . "")
                                                      (hooks . [((type . "command")
-                                                                (command . ,(format "%s --eval \"(claude-code-handle-notification \\\"Claude task completed\\\")\""
+                                                                (command . ,(format "%s --eval \"(claude-code-handle-notification \\\"Claude task completed\\\" \\\"$CLAUDE_BUFFER_NAME\\\")\""
                                                                                     emacsclient-cmd)))]))])))))
          (existing-config (when (file-exists-p settings-file)
                             (condition-case err
@@ -156,9 +156,10 @@ This is intended to be called from Claude Code hooks via emacsclient."
     (unless (file-directory-p claude-dir)
       (make-directory claude-dir t))
 
-    ;; Write updated config
+    ;; Write updated config with pretty formatting
     (with-temp-file settings-file
-      (insert (json-encode new-config)))
+      (let ((json-encoding-pretty-print t))
+        (insert (json-encode new-config))))
 
     (message "Claude Code notification hooks added to %s" settings-file)))
 
