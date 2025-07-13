@@ -1795,6 +1795,18 @@ hooks via emacsclient."
     :select nil
     :quit t))
 
+;;;; Extensions
+
+;;;###autoload
+(defun claude-code-load-org-notifications ()
+  "Load the org mode notification queue extension for Claude Code.
+
+This provides persistent task tracking in ~/.claude/taskmaster.org with
+timestamps and clickable buffer links, plus smart popup notifications."
+  (interactive)
+  (require 'claude-code-org-notifications)
+  (message "Claude Code org notifications loaded. Use M-x claude-code-setup-hooks to configure."))
+
 ;;;; Mode definition
 ;;;###autoload
 (define-minor-mode claude-code-mode
