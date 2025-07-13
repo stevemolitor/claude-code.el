@@ -75,6 +75,55 @@
                                ,@(when data `((data . ,data)))))))))
     (websocket-send-text ws response)))
 
+(defun claude-code--ws-send-notification (client method params)
+  "Send notification with METHOD and PARAMS to CLIENT."
+  (let ((notification (json-encode
+                       `((jsonrpc . "2.0")
+                         (method . ,method)
+                         (params . ,params)))))
+    (websocket-send-text client notification)))
+
+(defun claude-code-send-current-selection ()
+  (interactive)
+  "Send current selection/cursor position."
+  (let* ((file-path (buffer-file-name))
+         (point-pos (point))
+         (has-region (use-region-p))
+         (region-start (if has-region (region-beginning) point-pos))
+         (region-end (if has-region (region-end) point-pos))
+         (text (if has-region
+                   (buffer-substring-no-properties region-start region-end)
+                 ""))
+         ;; Convert to line/column positions
+         (start-line (line-number-at-pos region-start))
+         (start-col (save-excursion
+                      (goto-char region-start)
+                      (current-column)))
+         (end-line (line-number-at-pos region-end))
+         (end-col (save-excursion
+                    (goto-char region-end)
+                    (current-column)))
+         ;; Create position markers for duplicate detection
+         (current-position (if has-region
+                               (list region-start region-end)
+                             point-pos))
+         (current-region (if has-region
+                             (list start-line start-col end-line end-col)
+                           nil)))
+    ;; Only send if something changed
+    (claude-code--ws-send-notification
+     claude-code--ws-client
+     "selection_changed"
+     `((text . ,text)
+       (filePath . ,file-path)
+       (fileUrl . ,(concat "file://" file-path))
+       (selection . ((start . ((line . ,(1- start-line)) ; 0-indexed
+                               (character . ,start-col)))
+                     (end . ((line . ,(1- end-line)) ; 0-indexed
+                             (character . ,end-col)))
+                     (isEmpty . ,(not has-region))))))))
+
+;;; handlers
 (defun claude-code--ws-handle-initialize (ws id params)
   "Handle initialize request with ID and PARAMS from WS for SESSION."
   (claude-code--ws-send-response
@@ -91,7 +140,7 @@
   "Handle initialize request with ID and PARAMS from WS for SESSION."
   (claude-code--ws-send-response ws id `((tools . []))))
 
-(defun claude-code--ws-handle-tools-call (session ws id params)
+(defun claude-code--ws-handle-tools-call (ws id params)
   "Handle tools/call request with ID and PARAMS from WS for SESSION."
   ;; Will be implemented when claude-code-tools.el is created
   (claude-code--ws-send-error ws id -32601 "No tools implemented yet"))
@@ -144,6 +193,13 @@
     (message "server started on port %d" port)
     server))
 
+(defun claude-code-start-websocket-server ()
+  (interactive)
+  (setq claude-code--ws-server (claude-code--ws-start-server "~/scratch")))
+
+(defun claude-code-stop-websocket-server ()
+  (interactive)
+  (websocket-server-close claude-code--ws-server))
 ;; (setq claude-code--ws-server (claude-code--ws-start-server "~/scratch"))
 
 ;; (websocket-server-close claude-code--ws-server)

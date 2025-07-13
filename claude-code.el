@@ -30,6 +30,10 @@
   "Vterm terminal backend specific settings for Claude Code."
   :group 'claude-code)
 
+(defgroup claude-code-window nil
+  "Window management settings for Claude Code."
+  :group 'claude-code)
+
 (defface claude-code-repl-face
   nil
   "Face for Claude REPL."
@@ -129,6 +133,16 @@ Set to nil if you experience issues with terminal display after window
 resizing."
   :type 'boolean
   :group 'claude-code)
+
+(defcustom claude-code-no-delete-other-windows nil
+  "Whether to prevent Claude Code windows from being deleted.
+
+When non-nil, claude-code will have the `no-delete-other-windows'
+parameter.  This parameter prevents the claude-code window from
+closing when calling `delete-other-windows' or any command that would
+launch a new full-screen buffer."
+  :type 'boolean
+  :group 'claude-code-window)
 
 ;;;;; Eat terminal customizations
 ;; Eat-specific terminal faces
@@ -1148,14 +1162,15 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
       (setq-local vertical-scroll-bar nil)
 
       ;; Display buffer, setting window parameters
-      (display-buffer buffer '((display-buffer-below-selected)))
-      
-      ;; turn off fringes and margins in the Claude buffer
-      (let ((window (get-buffer-window buffer)))
-        (set-window-parameter window 'left-margin-width 0)
-        (set-window-parameter window 'right-margin-width 0)
-        (set-window-parameter window 'left-fringe-width 0)
-        (set-window-parameter window 'right-fringe-width 0)))
+      (let ((window (display-buffer buffer '((display-buffer-below-selected)))))
+        (when window
+          ;; turn off fringes and margins in the Claude buffer
+          (set-window-parameter window 'left-margin-width 0)
+          (set-window-parameter window 'right-margin-width 0)
+          (set-window-parameter window 'left-fringe-width 0)
+          (set-window-parameter window 'right-fringe-width 0)
+          ;; set no-delete-other-windows parameter for claude-code window
+          (set-window-parameter window 'no-delete-other-windows claude-code-no-delete-other-windows))))
 
     ;; switch to the Claude buffer if asked to
     (when switch-after
@@ -1469,7 +1484,9 @@ If the Claude buffer doesn't exist, create it."
     (if claude-code-buffer
         (if (get-buffer-window claude-code-buffer)
             (delete-window (get-buffer-window claude-code-buffer))
-          (display-buffer claude-code-buffer))
+          (let ((window (display-buffer claude-code-buffer '((display-buffer-below-selected)))))
+            ;; set no-delete-other-windows parameter for claude-code window
+            (set-window-parameter window 'no-delete-other-windows claude-code-no-delete-other-windows)))
       (claude-code--show-not-running-message))))
 
 ;;;###autoload
@@ -1733,10 +1750,6 @@ and managing Claude sessions."
   :lighter " Claude"
   :global t
   :group 'claude-code)
-
-;;;; MCP Integration (optional)
-;; Load MCP integration if available
-(require 'claude-code-mcp-integration nil t)
 
 ;;;; Provide the feature
 (provide 'claude-code)
