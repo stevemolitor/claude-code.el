@@ -321,6 +321,7 @@ for each directory across multiple invocations.")
     (define-key map (kbd "2") 'claude-code-send-2)
     (define-key map (kbd "3") 'claude-code-send-3)
     (define-key map (kbd "M") 'claude-code-cycle-mode)
+    (define-key map (kbd "o") 'claude-code-send-buffer-file)
     map)
   "Keymap for Claude commands.")
 
@@ -342,6 +343,7 @@ for each directory across multiple invocations.")
     ("s" "Send command" claude-code-send-command)
     ("x" "Send command with context" claude-code-send-command-with-context)
     ("r" "Send region or buffer" claude-code-send-region)
+    ("o" "Send buffer file" claude-code-send-buffer-file)
     ("e" "Fix error at point" claude-code-fix-error-at-point)
     ("f" "Fork conversation" claude-code-fork)
     ("/" "Slash Commands" claude-code-slash-commands)]
@@ -1655,6 +1657,34 @@ having to switch to the REPL buffer."
   (interactive)
   (claude-code--with-buffer
    (claude-code--term-send-string claude-code-terminal-backend (kbd "ESC"))))
+
+;;;###autoload
+(defun claude-code-send-file (file-path)
+  "Send the specified FILE-PATH to Claude prefixed with `@'.
+
+FILE-PATH should be an absolute path to the file to send."
+  (interactive "fFile to send to Claude: ")
+  (let ((command (format "@%s" (expand-file-name file-path))))
+    (claude-code--do-send-command command)))
+
+;;;###autoload
+(defun claude-code-send-buffer-file (&optional arg)
+  "Send the file associated with current buffer to Claude prefixed with `@'.
+
+With prefix ARG, prompt for instructions to add to the file before sending.
+With two prefix ARGs, both add instructions and switch to Claude buffer."
+  (interactive "P")
+  (let ((file-path (buffer-file-name)))
+    (if file-path
+        (let* ((prompt (when arg
+                        (read-string "Instructions for Claude: ")))
+               (command (if prompt
+                           (format "%s\n\n@%s" prompt file-path)
+                         (format "@%s" file-path))))
+          (let ((selected-buffer (claude-code--do-send-command command)))
+            (when (and (equal arg '(16)) selected-buffer) ; Only switch buffer with C-u C-u
+              (pop-to-buffer selected-buffer))))
+      (error "Current buffer is not associated with a file"))))
 
 (defun claude-code--send-meta-return ()
   "Send Meta-Return key sequence to the terminal."
