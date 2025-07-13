@@ -653,6 +653,9 @@ SWITCHES are optional command-line arguments for PROGRAM."
   (let* ((vterm-shell (if switches
                           (concat program " " (mapconcat #'identity switches " "))
                         program))
+         ;; Set environment variable with buffer name value
+         (vterm-environment (cons (format "CLAUDE_BUFFER_NAME=%s" buffer-name)
+                                  vterm-environment))
          (buffer (get-buffer-create buffer-name)))
     (with-current-buffer buffer
       ;; vterm needs to have an open window before starting the claude
