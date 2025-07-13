@@ -120,6 +120,8 @@ in this code".
 
 Use the `claude-code-send-region` (`C-c c r`) command to send the selected region to Claude, or the entire buffer if no region is selected. This command is useful for writing a prompt in a regular Emacs buffer and sending it to Claude. With a single prefix arg (`C-u C-c c r`) it will prompt for extra context before sending the region to Claude.
 
+You can also send files directly to Claude using `claude-code-send-file` to send any file by path, or `claude-code-send-buffer-file` (`C-c c o`) to send the file associated with the current buffer. The `claude-code-send-buffer-file` command supports prefix arguments similar to `claude-code-send-region` - with a single prefix arg it prompts for instructions, and with double prefix it also switches to the Claude buffer.
+
 If you put your cursor over a flymake or flycheck error, you can ask Claude to fix it via `claude-code-fix-error-at-point` (`C-c c e`).
 
 To show and hide the Claude buffer use `claude-code-toggle` (`C-c c t`).  To jump to the Claude buffer use `claude-code-switch-to-buffer` (`C-c c b`). This will open the buffer if hidden.
@@ -201,6 +203,8 @@ You can change this behavior by customizing `claude-code-newline-keybinding-styl
 - `claude-code-send-command` (`C-c c s`) - Send command to Claude. With prefix arg (`C-u`), switches to the Claude buffer after sending
 - `claude-code-send-command-with-context` (`C-c c x`) - Send command with current file and line context. With prefix arg (`C-u`), switches to the Claude buffer after sending
 - `claude-code-send-region` (`C-c c r`) - Send the current region or buffer to Claude. With prefix arg (`C-u`), prompts for instructions to add to the text. With double prefix (`C-u C-u`), adds instructions and switches to Claude buffer
+- `claude-code-send-file` - Send a specified file to Claude. Prompts for file path
+- `claude-code-send-buffer-file` (`C-c c o`) - Send the file associated with current buffer to Claude. With prefix arg (`C-u`), prompts for instructions to add to the file. With double prefix (`C-u C-u`), adds instructions and switches to Claude buffer
 - `claude-code-fix-error-at-point` (`C-c c e`) - Ask Claude to fix the error at the current point (works with flycheck, flymake, and any system that implements help-at-pt). With prefix arg (`C-u`), switches to the Claude buffer after sending
 - `claude-code-fork` (`C-c c f`) - Fork conversation (jump to previous conversation by sending escape-escape to Claude)
 - `claude-code-slash-commands` (`C-c c /`) - Access Claude slash commands menu

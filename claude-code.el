@@ -1674,7 +1674,7 @@ FILE-PATH should be an absolute path to the file to send."
 With prefix ARG, prompt for instructions to add to the file before sending.
 With two prefix ARGs, both add instructions and switch to Claude buffer."
   (interactive "P")
-  (let ((file-path (buffer-file-name)))
+  (let ((file-path (claude-code--get-buffer-file-name)))
     (if file-path
         (let* ((prompt (when arg
                         (read-string "Instructions for Claude: ")))
