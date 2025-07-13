@@ -1,167 +1,77 @@
-;;; claude-code-mcp.el --- MCP protocol server for Claude Code IDE integration -*- lexical-binding: t; -*-
-
-;; Copyright (C) 2024 Stephen Molitor
-
-;; This program is free software; you can redistribute it and/or modify
-;; it under the terms of the Apache License, Version 2.0.
-
-;; This program is distributed in the hope that it will be useful,
-;; but WITHOUT ANY WARRANTY; without even the implied warranty of
-;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+;;; claude-code-mcp.el<claude-code-ide>  --- Claude MCP over websockets implementation  -*- lexical-binding:t -*-
 
 ;;; Commentary:
-;; MCP (Model Context Protocol) server implementation for Claude Code.
-;; Provides WebSocket-based communication channel between Claude CLI and Emacs.
-;; All functions are private (claude-code--mcp-*) as this is internal infrastructure.
+;; Integrate claude-code.el with claude processes using websockets + MCP.
+
 
 ;;; Code:
-
-(require 'cl-lib)
-(require 'json)
 (require 'websocket)
-(require 'files)
 
-;;;; Constants
-
-(defconst claude-code--mcp-protocol-version "2024-11-05"
-  "MCP protocol version supported.")
-
-(defconst claude-code--mcp-port-min 10000
-  "Minimum port number for WebSocket server.")
-
-(defconst claude-code--mcp-port-max 65535
-  "Maximum port number for WebSocket server.")
-
-;;;; Session Structure
-
-(cl-defstruct claude-code--mcp-session
+;;; Session structure
+(cl-defstruct claude-code-mcp--session
   "MCP session for a Claude instance."
-  server          ; websocket server process
-  client          ; connected websocket client (if any)
-  port            ; server port number
-  project-dir     ; project directory path
-  instance-name   ; instance name (e.g., "default", "tests")
-  buffer          ; associated Claude terminal buffer
-  deferred        ; hash table for deferred responses
-  selection-timer ; timer for debounced selection updates
-  last-selection  ; cached last selection to avoid duplicates
-  request-id      ; counter for generating request IDs
-  )
+  key
+  server
+  client
+  port)
 
-;;;; Global State
+;;; Constants
+(defconst claude-code-mcp--port-min 10000 "Minimum port number for WebSocket server.")
+(defconst claude-code-mcp--port-max 65535 "Maximum port number for WebSocket server.")
+(defconst claude-code-mcp--protocol-version "2024-11-05" "MCP protocol version supported.")
 
-(defvar claude-code--mcp-sessions (make-hash-table :test 'equal)
-  "Hash table mapping buffer to MCP session.")
+;;; Internal state variables
+(defvar claude-code-mcp--sessions (make-hash-table :test 'equal)
+  "Hash table mapping claude code buffer names to ide websocket sessions.
 
-;;;; Public API (called by claude-code.el)
+Values are instances of the `claude-code-mcp--session' structure.
 
-(defun claude-code--mcp-start (project-dir instance-name buffer)
-  "Start MCP server for PROJECT-DIR with INSTANCE-NAME in BUFFER.
-Returns the session object."
-  (let* ((port (claude-code--mcp-find-free-port))
-         (session (make-claude-code--mcp-session
-                   :port port
-                   :project-dir project-dir
-                   :instance-name instance-name
-                   :buffer buffer
-                   :deferred (make-hash-table :test 'equal)
-                   :request-id 0)))
-    ;; Create WebSocket server
-    (condition-case err
-        (let ((server (websocket-server
-                       port
-                       :host "127.0.0.1"
-                       :on-open (lambda (ws)
-                                  (claude-code--mcp-on-open session ws))
-                       :on-message (lambda (ws frame)
-                                     (claude-code--mcp-on-message session ws frame))
-                       :on-close (lambda (ws)
-                                   (claude-code--mcp-on-close session ws))
-                       :on-error (lambda (ws type err)
-                                   (claude-code--mcp-on-error session ws type err))
-                       :protocol '("mcp"))))
-          (setf (claude-code--mcp-session-server session) server)
-          ;; Create lock file
-          (claude-code--mcp-create-lockfile session)
-          ;; Store session
-          (puthash buffer session claude-code--mcp-sessions)
-          ;; Start selection tracking if available
-          (when (require 'claude-code-selection nil t)
-            (claude-code--selection-start session))
-          session)
-      (error
-       (message "Failed to start MCP server: %s" (error-message-string err))
-       nil))))
+Keys can actually be any unique string, not just buffer names. Using a
+key that is not a buffer name is useful for creating a websocket server
+in Emacs to connect to an claude process running outside Emacs." )
 
-(defun claude-code--mcp-stop (session)
-  "Stop MCP server and clean up SESSION."
-  (when session
-    ;; Stop selection tracking
-    (when (require 'claude-code-selection nil t)
-      (claude-code--selection-stop session))
-    ;; Close WebSocket server
-    (when-let ((server (claude-code--mcp-session-server session)))
-      (websocket-server-close server))
-    ;; Remove lock file
-    (claude-code--mcp-remove-lockfile session)
-    ;; Remove from sessions
-    (remhash (claude-code--mcp-session-buffer session) claude-code--mcp-sessions)))
+;;; Util functions
+(defun claude-code-mcp--shuffle-list (l)
+  "Randomly shuffle list L."
+  (let* ((v (apply #'vector l))
+         (n (length v)))
+    (dotimes (i (1- n) v)
+      (cl-rotatef (aref v i) (aref v (+ i (random (- n i))))))
+    (append v nil)))
 
-;;;; Port Management
-
-(defun claude-code--mcp-find-free-port ()
-  "Find a free port in the allowed range."
-  (let ((ports (number-sequence claude-code--mcp-port-min 
-                                claude-code--mcp-port-max)))
-    ;; Shuffle ports for randomness
-    (setq ports (claude-code--mcp-shuffle-list ports))
-    ;; Try ports until we find a free one
-    (cl-loop for port in ports
-             when (claude-code--mcp-port-available-p port)
-             return port
-             finally (error "No free ports available"))))
-
-(defun claude-code--mcp-port-available-p (port)
+(defun claude-code-mcp--port-available-p (port)
   "Check if PORT is available for binding."
   (condition-case nil
       (let ((test-process
              (make-network-process
               :name "test"
               :server t
-              :host "127.0.0.1"
+              :host 'local
               :service port
               :family 'ipv4)))
         (delete-process test-process)
         t)
     (error nil)))
 
-(defun claude-code--mcp-shuffle-list (list)
-  "Return a shuffled copy of LIST."
-  (let ((copy (copy-sequence list)))
-    (cl-loop for i from (length copy) downto 2
-             do (let ((j (random i)))
-                  (cl-rotatef (nth (1- i) copy) (nth j copy))))
-    copy))
+(defun claude-code-mcp--find-free-port ()
+  "Find a free port in the allowed range."
+  (let* ((ports (number-sequence claude-code-mcp--port-min claude-code-mcp--port-max))
+         ;; Shuffle ports for randomness
+         (shuffled-ports (claude-code-mcp--shuffle-list ports)))
+    ;; Try ports until we find a free one
+    (cl-loop for port in shuffled-ports
+             when (claude-code-mcp--port-available-p port)
+             return port
+             finally (error "No free ports available"))))
 
-;;;; Lock File Management
-
-(defun claude-code--mcp-lockfile-dir ()
-  "Return the directory for lock files."
-  (expand-file-name "~/.claude/ide/"))
-
-(defun claude-code--mcp-lockfile-path (session)
-  "Return the lock file path for SESSION."
-  (expand-file-name 
-   (format "%d.lock" (claude-code--mcp-session-port session))
-   (claude-code--mcp-lockfile-dir)))
-
-(defun claude-code--mcp-create-lockfile (session)
+(defun claude-code-mcp--create-lockfile (folder port)
   "Create lock file for SESSION."
-  (let* ((dir (claude-code--mcp-lockfile-dir))
-         (file (claude-code--mcp-lockfile-path session))
+  (let* ((port port)
+         (dir (expand-file-name "~/.claude/ide/"))
+         (file (expand-file-name (format "%d.lock" port) dir))
          (content (json-encode
                    `((pid . ,(emacs-pid))
-                     (workspaceFolders . ,(vector (claude-code--mcp-session-project-dir session)))
+                     (workspaceFolders . ,(vector folder))
                      (ideName . "Emacs")
                      (transport . "ws")))))
     ;; Ensure directory exists
@@ -172,106 +82,7 @@ Returns the session object."
     ;; Make it readable
     (set-file-modes file #o644)))
 
-(defun claude-code--mcp-remove-lockfile (session)
-  "Remove lock file for SESSION."
-  (let ((file (claude-code--mcp-lockfile-path session)))
-    (when (file-exists-p file)
-      (delete-file file))))
-
-;;;; WebSocket Callbacks
-
-(defun claude-code--mcp-on-open (session ws)
-  "Handle WebSocket WS open for SESSION."
-  (setf (claude-code--mcp-session-client session) ws)
-  (message "Claude Code connected to MCP server on port %d" 
-           (claude-code--mcp-session-port session)))
-
-(defun claude-code--mcp-on-message (session ws frame)
-  "Handle WebSocket message FRAME from WS for SESSION."
-  (let* ((payload (websocket-frame-text frame))
-         (message (condition-case err
-                      (json-read-from-string payload)
-                    (error
-                     (claude-code--mcp-send-error ws nil -32700 
-                                                  "Parse error" 
-                                                  (error-message-string err))
-                     nil))))
-    (when message
-      (claude-code--mcp-handle-message session ws message))))
-
-(defun claude-code--mcp-on-close (session ws)
-  "Handle WebSocket WS close for SESSION."
-  (when (eq (claude-code--mcp-session-client session) ws)
-    (setf (claude-code--mcp-session-client session) nil))
-  (message "Claude Code disconnected from MCP server"))
-
-(defun claude-code--mcp-on-error (session ws type err)
-  "Handle WebSocket error ERR of TYPE from WS for SESSION."
-  (message "MCP WebSocket error (%s): %s" type (error-message-string err)))
-
-;;;; Helper Functions
-
-(defun claude-code--mcp-find-session-by-ws (ws)
-  "Find MCP session that owns WebSocket WS."
-  ;; For now, just return the global test session if available
-  (or (and (boundp 'test-mcp-standalone-session) test-mcp-standalone-session)
-      (and (boundp 'claude-code-test-session) claude-code-test-session)))
-
-;;;; Message Handling
-
-(defun claude-code--mcp-handle-message (session ws message)
-  "Handle JSON-RPC MESSAGE from WS for SESSION."
-  (let ((id (alist-get 'id message))
-        (method (alist-get 'method message))
-        (params (alist-get 'params message)))
-    (condition-case err
-        (pcase method
-          ;; Protocol initialization
-          ("initialize"
-           (claude-code--mcp-handle-initialize session ws id params))
-          ;; Tool listing
-          ("tools/list"
-           (claude-code--mcp-handle-tools-list session ws id params))
-          ;; Tool invocation
-          ("tools/call"
-           (claude-code--mcp-handle-tools-call session ws id params))
-          ;; Prompts listing (empty for now)
-          ("prompts/list"
-           (claude-code--mcp-send-response ws id '((prompts . []))))
-          ;; Unknown method
-          (_
-           (claude-code--mcp-send-error ws id -32601 
-                                        (format "Method not found: %s" method))))
-      (error
-       (claude-code--mcp-send-error ws id -32603
-                                    "Internal error"
-                                    (error-message-string err))))))
-
-(defun claude-code--mcp-handle-initialize (session ws id params)
-  "Handle initialize request with ID and PARAMS from WS for SESSION."
-  (claude-code--mcp-send-response
-   ws id
-   `((protocolVersion . ,claude-code--mcp-protocol-version)
-     (capabilities . ((tools . ((listChanged . t)))
-                      (prompts . ((listChanged . t)))
-                      (resources . ((subscribe . t)
-                                    (listChanged . t)))))
-     (serverInfo . ((name . "claude-code-mcp")
-                    (version . "0.1.0"))))))
-
-(defun claude-code--mcp-handle-tools-list (session ws id params)
-  "Handle tools/list request with ID and PARAMS from WS for SESSION."
-  ;; Will be implemented when claude-code-tools.el is created
-  (claude-code--mcp-send-response ws id '((tools . []))))
-
-(defun claude-code--mcp-handle-tools-call (session ws id params)
-  "Handle tools/call request with ID and PARAMS from WS for SESSION."
-  ;; Will be implemented when claude-code-tools.el is created
-  (claude-code--mcp-send-error ws id -32601 "No tools implemented yet"))
-
-;;;; Response/Notification Sending
-
-(defun claude-code--mcp-send-response (ws id result)
+(defun claude-code-mcp--send-response (ws id result)
   "Send successful response with ID and RESULT to WS."
   (let ((response (json-encode
                    `((jsonrpc . "2.0")
@@ -279,7 +90,7 @@ Returns the session object."
                      (result . ,result)))))
     (websocket-send-text ws response)))
 
-(defun claude-code--mcp-send-error (ws id code message &optional data)
+(defun claude-code-mcp--send-error (ws id code message &optional data)
   "Send error response with ID, CODE, MESSAGE and optional DATA to WS."
   (let ((response (json-encode
                    `((jsonrpc . "2.0")
@@ -289,20 +100,174 @@ Returns the session object."
                                ,@(when data `((data . ,data)))))))))
     (websocket-send-text ws response)))
 
-(defun claude-code--mcp-send-notification (session method params)
-  "Send notification with METHOD and PARAMS to SESSION's client."
-  (when-let ((client (claude-code--mcp-session-client session)))
-    (let ((notification (json-encode
-                         `((jsonrpc . "2.0")
-                           (method . ,method)
-                           (params . ,params)))))
-      (websocket-send-text client notification))))
+(defun claude-code-mcp--send-notification (client method params)
+  "Send notification with METHOD and PARAMS to CLIENT."
+  (let ((notification (json-encode
+                       `((jsonrpc . "2.0")
+                         (method . ,method)
+                         (params . ,params)))))
+    (websocket-send-text client notification)))
 
-;;;; Utility Functions
+;;; Handlers
+(defun claude-code-mcp--handle-initialize (session ws id params)
+  "Handle initialize request with ID and PARAMS from WS for SESSION."
+  (when-let ((client (claude-code-mcp--session-client session)))
+    (claude-code-mcp--send-response
+     ws id
+     `((protocolVersion . ,claude-code-mcp--protocol-version)
+       (capabilities . ((tools . ((listChanged . t)))
+                        (prompts . ((listChanged . t)))
+                        (resources . ((subscribe . t)
+                                      (listChanged . t)))))
+       (serverInfo . ((name . "claude-code.el")
+                      (version . "0.1.0")))))))
 
-(defun claude-code--mcp-next-request-id (session)
-  "Get next request ID for SESSION."
-  (cl-incf (claude-code--mcp-session-request-id session)))
+(defun claude-code-mcp--handle-tools-list (_session ws id params)
+  "Handle initialize request with ID and PARAMS from WS for SESSION."
+  (claude-code-mcp--send-response ws id `((tools . []))))
+
+(defun claude-code-mcp--handle-tools-call (_session ws id params)
+  "Handle tools/call request with ID and PARAMS from WS for SESSION."
+  ;; [TODO]
+  (claude-code-mcp--send-error ws id -32601 "No tools implemented yet"))
+
+;;; Websocket server management functions
+(defun claude-code-mcp--on-open-server (session ws)
+  "Handle WebSocket WS open for SESSION.
+
+Put client WS in SESSION structure, so we can use it to send messages to
+claude later."
+  (setf (claude-code-mcp--session-client session) ws)
+  (message "Claude Code connected to MCP server on port %d" (claude-code-mcp--session-port session)))
+
+(defun claude-code-mcp--on-close-server (session ws)
+  "Handle WebSocket WS close for SESSION.
+
+Remove SESSION from `claude-code-mcp--sessions'."
+  (let ((key (claude-code-mcp--session-key session))
+        (port (claude-code-mcp--session-port session)))
+    (remhash key claude-code-mcp--sessions)
+    (message "server running on port %d closed" port)))
+
+(defun claude-code-mcp--on-message (session ws frame)
+  "Handle JSON-RPC messsage from WS FRAME for SESSION."
+  (let* ((payload (websocket-frame-text frame))
+         (message (json-read-from-string payload))
+         (id (alist-get 'id message))
+         (method (alist-get 'method message))
+         (params (alist-get 'params message)))
+    (pcase method
+      ;; Protocol initialization
+      ("initialize"
+       (claude-code-mcp--handle-initialize session ws id params))
+      ;; Tool listing
+      ("tools/list"
+       (claude-code-mcp--handle-tools-list session ws id params))
+      ;; Tool invocation
+      ("tools/call"
+       (claude-code-mcp--handle-tools-call session id params))
+      ;; Prompts listing (empty for now)
+      ("prompts/list"
+       (claude-code-mcp--send-response ws id '((prompts . []))))
+      ;; Unknown method
+      (_
+       (claude-code-mcp--send-error ws id -32601 (format "Method not found: %s" method))
+       (message "Method not found: %s" method)))))
+
+(defun claude-code-mcp--start-server (key dir)
+  "Start websocker server for claude process KEY running in DIR.
+
+Returns the session object."
+  (if (gethash key claude-code-mcp--sessions)
+      (error "Websocket server already started for key %s" key)
+    (let* ((port (claude-code-mcp--find-free-port))
+           (session (make-claude-code-mcp--session :key key :port port)))
+      (condition-case err
+          (let ((server (websocket-server
+                         port
+                         :host 'local
+                         :on-open (lambda (ws)
+                                    (claude-code-mcp--on-open-server session ws))
+                         :on-close (lambda (ws)
+                                     (claude-code-mcp--on-close-server session ws))
+                         :on-message (lambda (ws frame)
+                                       (message "HEY on message!")
+                                       (claude-code-mcp--on-message session ws frame))
+
+                         ;; [TODO] :on-error
+                         :protocol '("mcp"))))
+            ;; Put server in the session
+            (setf (claude-code-mcp--session-server session) server)
+
+            ;; Create lock file
+            (claude-code-mcp--create-lockfile dir port)
+
+            ;; Store session
+            (puthash key session claude-code-mcp--sessions)
+
+            ;; Create lockfile
+            (claude-code-mcp--create-lockfile dir port)
+
+            ;; Print message and return session
+            ;; Return session
+            (message "server started on %d" port)
+            session)
+        (error
+         (message "Failed to start MCP server: %s" (error-message-string err))
+         nil)))))
+
+;;; Selection
+(defun claude-code-mcp-send-current-selection ()
+  (interactive)
+  "Send current selection/cursor position."
+  (let* ((session (gethash buffer-file-name claude-code-mcp--sessions))
+         (client (claude-code-mcp--session-client session))
+         (file-path (buffer-file-name))
+         (point-pos (point))
+         (has-region (use-region-p))
+         (region-start (if has-region (region-beginning) point-pos))
+         (region-end (if has-region (region-end) point-pos))
+         (text (if has-region
+                   (buffer-substring-no-properties region-start region-end)
+                 ""))
+         ;; Convert to line/column positions
+         (start-line (line-number-at-pos region-start))
+         (start-col (save-excursion
+                      (goto-char region-start)
+                      (current-column)))
+         (end-line (line-number-at-pos region-end))
+         (end-col (save-excursion
+                    (goto-char region-end)
+                    (current-column)))
+         ;; Create position markers for duplicate detection
+         (current-position (if has-region
+                               (list region-start region-end)
+                             point-pos))
+         (current-region (if has-region
+                             (list start-line start-col end-line end-col)
+                           nil)))
+    (claude-code-mcp--send-notification
+     client
+     "selection_changed"
+     `((text . ,text)
+       (filePath . ,file-path)
+       (fileUrl . ,(concat "file://" file-path))
+       (selection . ((start . ((line . ,(1- start-line)) ; 0-indexed
+                               (character . ,start-col)))
+                     (end . ((line . ,(1- end-line)) ; 0-indexed
+                             (character . ,end-col)))
+                     (isEmpty . ,(not has-region))))))))
+
+;;; Interactive functions for testing
+(defun claude-code-mcp-start-websocket-server ()
+  (interactive)
+  (claude-code-mcp--start-server buffer-file-name (file-name-directory buffer-file-name)))
+
+(defun claude-code-mcp-stop-websocket-server ()
+  (interactive)
+  (when-let* ((session (gethash buffer-file-name claude-code-mcp--sessions))
+              (server (claude-code-mcp--session-server session)))
+    (websocket-server-close server)))
 
 (provide 'claude-code-mcp)
-;;; claude-code-mcp.el ends here
+;;; claude-code-mcp.el<claude-code-ide> ends here
