@@ -90,9 +90,9 @@ This controls how the return key and its modifiers behave in Claude buffers:
 `\"S\"' is the shift key.
 `\"s\"' is the hyper key, which is the COMMAND key on macOS."
   :type '(choice (const :tag "Newline on shift-return (s-return for newline, RET to send)" newline-on-shift-return)
-                 (const :tag "Newline on alt-return (M-return for newline, RET to send)" newline-on-alt-return)
-                 (const :tag "Shift-return to send (RET for newline, S-return to send)" shift-return-to-send)
-                 (const :tag "Super-return to send (RET for newline, s-return to send)" super-return-to-send))
+          (const :tag "Newline on alt-return (M-return for newline, RET to send)" newline-on-alt-return)
+          (const :tag "Shift-return to send (RET for newline, S-return to send)" shift-return-to-send)
+          (const :tag "Super-return to send (RET for newline, s-return to send)" super-return-to-send))
   :group 'claude-code)
 
 (defcustom claude-code-enable-notifications t
@@ -398,7 +398,7 @@ for each directory across multiple invocations.")
   "Terminal backend to use for Claude Code.
 Choose between \\='eat (default) and \\='vterm terminal emulators."
   :type '(radio (const :tag "Eat terminal emulator" eat)
-                (const :tag "Vterm terminal emulator" vterm))
+          (const :tag "Vterm terminal emulator" vterm))
   :group 'claude-code)
 
 ;;;;; Generic function definitions
@@ -1342,39 +1342,8 @@ MESSAGE is the notification body."
 TERMINAL is the eat terminal parameter (not used)."
   (when claude-code-enable-notifications
     (funcall claude-code-notification-function
-             "Claude Ready"
+             "Claude Reay"
              "Waiting for your response")))
-
-(defun claude-code-handle-notification (message)
-  "Handle notifications from Claude Code hooks with enhanced UI.
-
-MESSAGE is the notification message to display.
-Creates a notification buffer with the message and optionally adds a button
-to switch to the Claude buffer if CLAUDE_BUFFER_NAME environment variable
-is set."
-  (interactive)
-  (message "Claude: %s" message)
-  (let* ((buffer-name "*Claude Code Notification*")
-         (claude-buffer-name (getenv "CLAUDE_BUFFER_NAME")))
-    (with-current-buffer (get-buffer-create buffer-name)
-      (read-only-mode -1)
-      (erase-buffer)
-      (insert message)
-      (when claude-buffer-name
-        (insert "\n\n")
-        (insert-button (format "Switch to %s" claude-buffer-name)
-                       'action (lambda (_button)
-                                 (when-let ((buffer (get-buffer claude-buffer-name)))
-                                   (switch-to-buffer buffer)))
-                       'help-echo (format "Click to switch to %s buffer" claude-buffer-name)))
-      (read-only-mode 1)
-      (display-buffer (current-buffer)
-                      '((display-buffer-in-side-window)
-                        (side . bottom)
-                        (window-height . 0.3)
-                        (slot . 0))))
-    (when (fboundp 'alert)
-      (alert message :title "Claude Code"))))
 
 (defun claude-code--vterm-bell-detector (orig-fun process input)
   "Detect bell characters in vterm output and trigger notifications.
@@ -1782,6 +1751,50 @@ enter Claude commands."
        (claude-code-read-only-mode)
      (claude-code-exit-read-only-mode))))
 
+;;;; Notification System
+
+;;;###autoload
+(defun claude-code-handle-notification (buffer-name)
+  "Handle notification with clickable link to Claude BUFFER-NAME.
+
+Creates a notification buffer with a clickable button to switch to the
+specified Claude buffer. This is intended to be called from Claude Code
+hooks via emacsclient."
+  (let ((notification-buffer "*Claude Code Notification*")
+        (target-buffer (when buffer-name (get-buffer buffer-name))))
+    (with-current-buffer (get-buffer-create notification-buffer)
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert (format "Claude notification for: %s\n\n" (or buffer-name "unknown buffer")))
+        
+        (if (and target-buffer (buffer-live-p target-buffer))
+            (insert-button "Switch to Claude buffer"
+                          'action (lambda (_button)
+                                    (when (buffer-live-p target-buffer)
+                                      (switch-to-buffer target-buffer)
+                                      (kill-buffer notification-buffer)))
+                          'help-echo (format "Click to switch to %s" buffer-name))
+          (insert (format "Buffer '%s' not found or no longer exists." (or buffer-name "unknown"))))
+        
+        (goto-char (point-min))
+        (setq buffer-read-only t))
+      
+      ;; Display the notification buffer
+      (display-buffer notification-buffer)
+      
+      ;; Auto-dismiss after 10 seconds
+      (run-with-timer 10 nil (lambda ()
+                              (when (buffer-live-p (get-buffer notification-buffer))
+                                (kill-buffer notification-buffer)))))))
+
+;; Check if Doom Emacs is available and configure popup rule
+(when (and (boundp 'doom-version) (fboundp 'set-popup-rule!))
+  (set-popup-rule! "^\\*Claude Code Notification\\*$"
+    :side 'bottom
+    :size 0.3
+    :select nil
+    :quit t))
+
 ;;;; Mode definition
 ;;;###autoload
 (define-minor-mode claude-code-mode
@@ -1793,16 +1806,6 @@ and managing Claude sessions."
   :lighter " Claude"
   :global t
   :group 'claude-code)
-
-;;;; Optional Doom Emacs configuration
-;; Uncomment the following line if using Doom Emacs to configure
-;; popup behavior for Claude Code notification buffers:
-;;
-;; (set-popup-rule! "^\\*Claude Code Notification\\*$"
-;;   :side 'bottom
-;;   :size 0.3
-;;   :select nil
-;;   :quit t)
 
 ;;;; Provide the feature
 (provide 'claude-code)
