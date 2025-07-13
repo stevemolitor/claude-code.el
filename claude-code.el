@@ -744,7 +744,16 @@ _BACKEND is the terminal backend type (should be \\='vterm)."
   ;; Set up bell detection advice
   (advice-add 'vterm--filter :around #'claude-code--vterm-bell-detector)
   ;; Set up multi-line buffering to prevent flickering
-  (advice-add 'vterm--filter :around #'claude-code--vterm-multiline-buffer-filter))
+  (advice-add 'vterm--filter :around #'claude-code--vterm-multiline-buffer-filter)
+  
+  ;; Export CLAUDE_BUFFER_NAME environment variable in the shell session
+  ;; This ensures child processes (like Claude Code hooks) can access it
+  (when-let ((buffer-name (buffer-name)))
+    (run-with-idle-timer 0.1 nil
+                         (lambda ()
+                           (when (buffer-live-p (get-buffer buffer-name))
+                             (with-current-buffer buffer-name
+                               (vterm-send-string (format "export CLAUDE_BUFFER_NAME='%s'\n" buffer-name))))))))
 
 (cl-defmethod claude-code--term-customize-faces ((_backend (eql vterm)))
   "Apply face customizations for vterm terminal.
@@ -1336,6 +1345,37 @@ TERMINAL is the eat terminal parameter (not used)."
              "Claude Ready"
              "Waiting for your response")))
 
+(defun claude-code-handle-notification (message)
+  "Handle notifications from Claude Code hooks with enhanced UI.
+
+MESSAGE is the notification message to display.
+Creates a notification buffer with the message and optionally adds a button
+to switch to the Claude buffer if CLAUDE_BUFFER_NAME environment variable
+is set."
+  (interactive)
+  (message "Claude: %s" message)
+  (let* ((buffer-name "*Claude Code Notification*")
+         (claude-buffer-name (getenv "CLAUDE_BUFFER_NAME")))
+    (with-current-buffer (get-buffer-create buffer-name)
+      (read-only-mode -1)
+      (erase-buffer)
+      (insert message)
+      (when claude-buffer-name
+        (insert "\n\n")
+        (insert-button (format "Switch to %s" claude-buffer-name)
+                       'action (lambda (_button)
+                                 (when-let ((buffer (get-buffer claude-buffer-name)))
+                                   (switch-to-buffer buffer)))
+                       'help-echo (format "Click to switch to %s buffer" claude-buffer-name)))
+      (read-only-mode 1)
+      (display-buffer (current-buffer)
+                      '((display-buffer-in-side-window)
+                        (side . bottom)
+                        (window-height . 0.3)
+                        (slot . 0))))
+    (when (fboundp 'alert)
+      (alert message :title "Claude Code"))))
+
 (defun claude-code--vterm-bell-detector (orig-fun process input)
   "Detect bell characters in vterm output and trigger notifications.
 
@@ -1753,6 +1793,16 @@ and managing Claude sessions."
   :lighter " Claude"
   :global t
   :group 'claude-code)
+
+;;;; Optional Doom Emacs configuration
+;; Uncomment the following line if using Doom Emacs to configure
+;; popup behavior for Claude Code notification buffers:
+;;
+;; (set-popup-rule! "^\\*Claude Code Notification\\*$"
+;;   :side 'bottom
+;;   :size 0.3
+;;   :select nil
+;;   :quit t)
 
 ;;;; Provide the feature
 (provide 'claude-code)
