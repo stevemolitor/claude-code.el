@@ -73,13 +73,12 @@ specified Claude buffer and adds an entry to the taskmaster org file.
 This is intended to be called from Claude Code hooks via emacsclient."
   (let* (;; Handle backwards compatibility: if message looks like a buffer name, swap parameters
          (is-buffer-name (and message (string-match-p "^\\*claude:" message)))
-         (actual-message (if is-buffer-name 
+         (actual-message (if is-buffer-name
                              (or buffer-name-override "Task completed")
                            message))
          (actual-buffer-name (if is-buffer-name
                                  message
-                               (or buffer-name-override
-                                   (getenv "CLAUDE_BUFFER_NAME"))))
+                               buffer-name-override))
          (notification-buffer "*Claude Code Notification*")
          (target-buffer (when actual-buffer-name (get-buffer actual-buffer-name))))
     
@@ -134,34 +133,39 @@ This is intended to be called from Claude Code hooks via emacsclient."
          (emacsclient-cmd (executable-find "emacsclient"))
          (hooks-config `((hooks . ((Notification . [((matcher . "")
                                                      (hooks . [((type . "command")
-                                                                (command . ,(format "%s --eval \"(claude-code-handle-notification \\\"Claude task completed\\\" \\\"$CLAUDE_BUFFER_NAME\\\")\""
-                                                                                    emacsclient-cmd)))]))])))))
+                                                                (command . ,(format "BUFFER=\"$CLAUDE_BUFFER_NAME\"; %s --eval \"(claude-code-handle-notification \\\"Claude task completed\\\" \\\"$BUFFER\\\")\""
+                                                                                    emacsclient-cmd)))]))])
+
+                                   (Stop . [((matcher . "")
+                                             (hooks . [((type . "command")
+                                                        (command . ,(format "BUFFER=\"$CLAUDE_BUFFER_NAME\"; %s --eval \"(claude-code-handle-notification \\\"Claude session stopped\\\" \\\"$BUFFER\\\")\""
+                                                                            emacsclient-cmd)))]))])))))
          (existing-config (when (file-exists-p settings-file)
-                            (condition-case err
-                                (json-read-file settings-file)
-                              (error
-                               (message "Warning: Could not parse existing settings.json: %s" (error-message-string err))
-                               nil))))
-         (new-config (if existing-config
-                         (let ((config-alist (if (hash-table-p existing-config)
-                                                 (claude-code--hash-table-to-alist existing-config)
-                                               existing-config)))
-                           (claude-code--merge-hooks-config config-alist hooks-config))
-                       hooks-config)))
+                     (condition-case err
+                         (json-read-file settings-file)
+                       (error
+                        (message "Warning: Could not parse existing settings.json: %s" (error-message-string err))
+                        nil))))
+  (new-config (if existing-config
+                  (let ((config-alist (if (hash-table-p existing-config)
+                                          (claude-code--hash-table-to-alist existing-config)
+                                        existing-config)))
+                    (claude-code--merge-hooks-config config-alist hooks-config))
+                hooks-config)))
 
-    (unless emacsclient-cmd
-      (error "emacsclient not found in PATH. Please ensure Emacs server is properly installed"))
+(unless emacsclient-cmd
+  (error "emacsclient not found in PATH. Please ensure Emacs server is properly installed"))
 
-    ;; Ensure Claude directory exists
-    (unless (file-directory-p claude-dir)
-      (make-directory claude-dir t))
+;; Ensure Claude directory exists
+(unless (file-directory-p claude-dir)
+  (make-directory claude-dir t))
 
-    ;; Write updated config with pretty formatting
-    (with-temp-file settings-file
-      (let ((json-encoding-pretty-print t))
-        (insert (json-encode new-config))))
+;; Write updated config with pretty formatting
+(with-temp-file settings-file
+  (let ((json-encoding-pretty-print t))
+    (insert (json-encode new-config))))
 
-    (message "Claude Code notification hooks added to %s" settings-file)))
+(message "Claude Code notification hooks added to %s" settings-file)))
 
 (defun claude-code--hash-table-to-alist (hash-table)
   "Convert HASH-TABLE to an alist."

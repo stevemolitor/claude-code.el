@@ -749,11 +749,7 @@ _BACKEND is the terminal backend type (should be \\='vterm)."
   ;; Export CLAUDE_BUFFER_NAME environment variable in the shell session
   ;; This ensures child processes (like Claude Code hooks) can access it
   (when-let ((buffer-name (buffer-name)))
-    (run-with-idle-timer 0.1 nil
-                         (lambda ()
-                           (when (buffer-live-p (get-buffer buffer-name))
-                             (with-current-buffer buffer-name
-                               (vterm-send-string (format "export CLAUDE_BUFFER_NAME='%s'\n" buffer-name))))))))
+    (vterm-send-string (format "export CLAUDE_BUFFER_NAME='%s'\n" buffer-name))))
 
 (cl-defmethod claude-code--term-customize-faces ((_backend (eql vterm)))
   "Apply face customizations for vterm terminal.
@@ -1754,18 +1750,32 @@ enter Claude commands."
 ;;;; Notification System
 
 ;;;###autoload
-(defun claude-code-handle-notification (buffer-name)
-  "Handle notification with clickable link to Claude BUFFER-NAME.
+(defun claude-code-handle-notification (message &optional buffer-name-override)
+  "Handle notification with clickable link to Claude buffer.
+
+MESSAGE is the notification message to display.
+BUFFER-NAME-OVERRIDE allows specifying a different buffer name than the
+environment variable. If MESSAGE looks like a buffer name (starts with *claude:),
+this function provides backwards compatibility by swapping the parameters.
 
 Creates a notification buffer with a clickable button to switch to the
 specified Claude buffer. This is intended to be called from Claude Code
 hooks via emacsclient."
-  (let ((notification-buffer "*Claude Code Notification*")
-        (target-buffer (when buffer-name (get-buffer buffer-name))))
+  (let* (;; Handle backwards compatibility: if message looks like a buffer name, swap parameters
+         (is-buffer-name (and message (string-match-p "^\\*claude:" message)))
+         (actual-message (if is-buffer-name 
+                             (or buffer-name-override "Task completed")
+                           message))
+         (actual-buffer-name (if is-buffer-name
+                                 message
+                               buffer-name-override))
+         (notification-buffer "*Claude Code Notification*")
+         (target-buffer (when actual-buffer-name (get-buffer actual-buffer-name))))
     (with-current-buffer (get-buffer-create notification-buffer)
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (insert (format "Claude notification for: %s\n\n" (or buffer-name "unknown buffer")))
+        (insert (format "%s\n" (or actual-message "Claude notification")))
+        (insert (format "Buffer: %s\n\n" (or actual-buffer-name "unknown buffer")))
         
         (if (and target-buffer (buffer-live-p target-buffer))
             (insert-button "Switch to Claude buffer"
@@ -1773,8 +1783,8 @@ hooks via emacsclient."
                                     (when (buffer-live-p target-buffer)
                                       (switch-to-buffer target-buffer)
                                       (kill-buffer notification-buffer)))
-                          'help-echo (format "Click to switch to %s" buffer-name))
-          (insert (format "Buffer '%s' not found or no longer exists." (or buffer-name "unknown"))))
+                          'help-echo (format "Click to switch to %s" actual-buffer-name))
+          (insert (format "Buffer '%s' not found or no longer exists." (or actual-buffer-name "unknown"))))
         
         (goto-char (point-min))
         (setq buffer-read-only t))
