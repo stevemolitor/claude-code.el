@@ -74,7 +74,6 @@ MESSAGE is the notification message to include in the TODO entry."
       (insert (format "* TODO Claude task completed %s\n" timestamp))
       (insert (format "  Message: %s\n" (or message "Task completed")))
       (insert (format "  Buffer: %s\n" buffer-link))
-      (insert (format "  Workspace: %s\n" workspace-link))
       (insert (format "  Actions: [[elisp:(claude-code--switch-to-workspace-for-buffer \"%s\")][Go to Workspace]] | [[elisp:(claude-code--clear-current-org-entry-and-switch \"%s\")][Clear and Go to Workspace]]\n" buffer-name buffer-name))
       (insert "\n")
       (write-region (point-min) (point-max) claude-code-taskmaster-org-file))))
