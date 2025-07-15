@@ -15,6 +15,7 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 - **Read-Only Mode** - Toggle to select and copy text with normal Emacs commands and keybindings
 - **Mode Cycling** - Quick switch between default, auto-accept edits, and plan modes
 - **Enhanced Notifications** - Clickable notifications with optional Org mode task tracking
+- **Workspace Integration** - Navigate to workspaces containing Claude buffers with perspective.el support
 - **Terminal Choice** - Works with both eat and vterm backends
 - **Fully Customizable** - Configure keybindings, notifications, and display preferences
 
@@ -26,6 +27,7 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 - [Claude Code CLI](https://github.com/anthropics/claude-code) installed and configured
 - Required: transient (0.7.5+)
 - Optional: eat (0.9.2+) for eat backend, vterm for vterm backend
+- Optional: perspective.el for workspace navigation features
 
 ### Using builtin use-package (Emacs 30+)
 
@@ -120,6 +122,8 @@ in this code".
 
 Use the `claude-code-send-region` (`C-c c r`) command to send the selected region to Claude, or the entire buffer if no region is selected. This command is useful for writing a prompt in a regular Emacs buffer and sending it to Claude. With a single prefix arg (`C-u C-c c r`) it will prompt for extra context before sending the region to Claude.
 
+You can also send files directly to Claude using `claude-code-send-file` to send any file by path, or `claude-code-send-buffer-file` (`C-c c o`) to send the file associated with the current buffer. The `claude-code-send-buffer-file` command supports prefix arguments similar to `claude-code-send-region` - with a single prefix arg it prompts for instructions, and with double prefix it also switches to the Claude buffer.
+
 If you put your cursor over a flymake or flycheck error, you can ask Claude to fix it via `claude-code-fix-error-at-point` (`C-c c e`).
 
 To show and hide the Claude buffer use `claude-code-toggle` (`C-c c t`).  To jump to the Claude buffer use `claude-code-switch-to-buffer` (`C-c c b`). This will open the buffer if hidden.
@@ -201,6 +205,8 @@ You can change this behavior by customizing `claude-code-newline-keybinding-styl
 - `claude-code-send-command` (`C-c c s`) - Send command to Claude. With prefix arg (`C-u`), switches to the Claude buffer after sending
 - `claude-code-send-command-with-context` (`C-c c x`) - Send command with current file and line context. With prefix arg (`C-u`), switches to the Claude buffer after sending
 - `claude-code-send-region` (`C-c c r`) - Send the current region or buffer to Claude. With prefix arg (`C-u`), prompts for instructions to add to the text. With double prefix (`C-u C-u`), adds instructions and switches to Claude buffer
+- `claude-code-send-file` - Send a specified file to Claude. Prompts for file path
+- `claude-code-send-buffer-file` (`C-c c o`) - Send the file associated with current buffer to Claude. With prefix arg (`C-u`), prompts for instructions to add to the file. With double prefix (`C-u C-u`), adds instructions and switches to Claude buffer
 - `claude-code-fix-error-at-point` (`C-c c e`) - Ask Claude to fix the error at the current point (works with flycheck, flymake, and any system that implements help-at-pt). With prefix arg (`C-u`), switches to the Claude buffer after sending
 - `claude-code-fork` (`C-c c f`) - Fork conversation (jump to previous conversation by sending escape-escape to Claude)
 - `claude-code-slash-commands` (`C-c c /`) - Access Claude slash commands menu
@@ -223,7 +229,73 @@ You can change this behavior by customizing `claude-code-newline-keybinding-styl
 
 ## Desktop Notifications
 
-claude-code.el notifies you when Claude finishes processing and is waiting for input. By default, it displays a message in the minibuffer and pulses the modeline for visual feedback. Enhanced notification features include clickable buffer links and optional Org mode task tracking.
+claude-code.el notifies you when Claude finishes processing and is waiting for input. By default, it displays a message in the minibuffer and pulses the modeline for visual feedback.
+
+### macOS Native Notifications
+
+To use macOS native notifications with sound, add this to your configuration:
+
+```elisp
+(defun my-claude-notify (title message)
+  "Display a macOS notification with sound."
+  (call-process "osascript" nil nil nil
+                "-e" (format "display notification \"%s\" with title \"%s\" sound name \"Glass\""
+                             message title)))
+
+(setq claude-code-notification-function #'my-claude-notify)
+```
+
+This will display a system notification with a "Glass" sound effect when Claude is ready. You can change the sound name to any system sound (e.g., "Ping", "Hero", "Morse", etc.) or remove the `sound name` part for silent notifications.
+
+### Linux Native Notifications
+
+For Linux desktop notifications, you can use `notify-send` (GNOME/Unity) or `kdialog` (KDE):
+
+```elisp
+;; For GNOME/Unity desktops
+(defun my-claude-notify (title message)
+  "Display a Linux notification using notify-send."
+  (if (executable-find "notify-send")
+      (call-process "notify-send" nil nil nil title message)
+    (message "%s: %s" title message)))
+
+(setq claude-code-notification-function #'my-claude-notify)
+```
+
+To add sound on Linux:
+
+```elisp
+(defun my-claude-notify-with-sound (title message)
+  "Display a Linux notification with sound."
+  (when (executable-find "notify-send")
+    (call-process "notify-send" nil nil nil title message))
+  ;; Play sound if paplay is available
+  (when (executable-find "paplay")
+    (call-process "paplay" nil nil nil "/usr/share/sounds/freedesktop/stereo/message.oga")))
+
+(setq claude-code-notification-function #'my-claude-notify-with-sound)
+```
+
+### Windows Native Notifications
+
+For Windows, you can use PowerShell to create toast notifications:
+
+```elisp
+(defun my-claude-notify (title message)
+  "Display a Windows notification using PowerShell."
+  (call-process "powershell" nil nil nil
+                "-NoProfile" "-Command"
+                (concat "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; "
+                        "$template = '<toast><visual><binding template=\"ToastGeneric\"><text>" title "</text><text>" message "</text></binding></visual></toast>'; "
+                        "$xml = New-Object Windows.Data.Xml.Dom.XmlDocument; "
+                        "$xml.LoadXml($template); "
+                        "$toast = [Windows.UI.Notifications.ToastNotification]::new($xml); "
+                        "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Emacs').Show($toast)")))
+
+(setq claude-code-notification-function #'my-claude-notify)
+```
+
+*Note: Linux and Windows examples are untested. Feedback and improvements are welcome!*
 
 ### Enhanced Notification System
 
@@ -294,72 +366,6 @@ The notification system includes workspace support that integrates with project-
 - **Keyboard Commands**: Use `C-c c w` to go to the most recent workspace or `C-c c W` to go there and clear the org entry
 
 When Claude completes a task, the workspace information is automatically extracted from the buffer name and included in both the org mode log entries and notification popups. The "Open & Clear" button and `C-c c W` command allow you to quickly navigate to a workspace and mark the corresponding org entry as DONE, helping you maintain a clean task queue.
-
-### macOS Native Notifications
-
-To use macOS native notifications with sound, add this to your configuration:
-
-```elisp
-(defun my-claude-notify (title message)
-  "Display a macOS notification with sound."
-  (call-process "osascript" nil nil nil
-                "-e" (format "display notification \"%s\" with title \"%s\" sound name \"Glass\""
-                             message title)))
-
-(setq claude-code-notification-function #'my-claude-notify)
-```
-
-This will display a system notification with a "Glass" sound effect when Claude is ready. You can change the sound name to any system sound (e.g., "Ping", "Hero", "Morse", etc.) or remove the `sound name` part for silent notifications.
-
-### Linux Native Notifications
-
-For Linux desktop notifications, you can use `notify-send` (GNOME/Unity) or `kdialog` (KDE):
-
-```elisp
-;; For GNOME/Unity desktops
-(defun my-claude-notify (title message)
-  "Display a Linux notification using notify-send."
-  (if (executable-find "notify-send")
-      (call-process "notify-send" nil nil nil title message)
-    (message "%s: %s" title message)))
-
-(setq claude-code-notification-function #'my-claude-notify)
-```
-
-To add sound on Linux:
-
-```elisp
-(defun my-claude-notify-with-sound (title message)
-  "Display a Linux notification with sound."
-  (when (executable-find "notify-send")
-    (call-process "notify-send" nil nil nil title message))
-  ;; Play sound if paplay is available
-  (when (executable-find "paplay")
-    (call-process "paplay" nil nil nil "/usr/share/sounds/freedesktop/stereo/message.oga")))
-
-(setq claude-code-notification-function #'my-claude-notify-with-sound)
-```
-
-### Windows Native Notifications
-
-For Windows, you can use PowerShell to create toast notifications:
-
-```elisp
-(defun my-claude-notify (title message)
-  "Display a Windows notification using PowerShell."
-  (call-process "powershell" nil nil nil
-                "-NoProfile" "-Command"
-                (concat "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; "
-                        "$template = '<toast><visual><binding template=\"ToastGeneric\"><text>" title "</text><text>" message "</text></binding></visual></toast>'; "
-                        "$xml = New-Object Windows.Data.Xml.Dom.XmlDocument; "
-                        "$xml.LoadXml($template); "
-                        "$toast = [Windows.UI.Notifications.ToastNotification]::new($xml); "
-                        "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Emacs').Show($toast)")))
-
-(setq claude-code-notification-function #'my-claude-notify)
-```
-
-*Note: Linux and Windows examples are untested. Feedback and improvements are welcome!*
 
 ## Tips and Tricks
 
