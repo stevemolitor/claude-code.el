@@ -75,6 +75,7 @@ MESSAGE is the notification message to include in the TODO entry."
       (insert (format "  Message: %s\n" (or message "Task completed")))
       (insert (format "  Buffer: %s\n" buffer-link))
       (insert (format "  Workspace: %s\n" workspace-link))
+      (insert (format "  Actions: [[elisp:(claude-code--clear-current-org-entry)][Clear]] | [[elisp:(claude-code--switch-to-workspace-for-buffer \"%s\")][Go to Workspace]]\n" buffer-name))
       (insert "\n")
       (write-region (point-min) (point-max) claude-code-taskmaster-org-file))))
 
@@ -116,6 +117,19 @@ MESSAGE is the notification message to include in the TODO entry."
       (when (re-search-backward "^\* TODO Claude task completed" nil t)
         (replace-match "* DONE Claude task completed")
         (write-region (point-min) (point-max) claude-code-taskmaster-org-file)))))
+
+(defun claude-code--clear-current-org-entry ()
+  "Clear (mark as DONE) the current TODO entry under point in the taskmaster org file."
+  (interactive)
+  (when (and (buffer-file-name)
+             (string= (file-name-nondirectory (buffer-file-name)) "taskmaster.org"))
+    ;; We're in the taskmaster.org file, mark current entry as DONE
+    (save-excursion
+      (org-back-to-heading t)
+      (when (looking-at "^\* TODO Claude task completed")
+        (replace-match "* DONE Claude task completed")
+        (save-buffer)
+        (message "Marked current entry as DONE")))))
 
 ;;;; Enhanced notification system
 
