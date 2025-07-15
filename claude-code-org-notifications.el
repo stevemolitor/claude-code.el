@@ -78,13 +78,13 @@ MESSAGE is the notification message to include in the TODO entry."
       (insert "\n")
       (write-region (point-min) (point-max) claude-code-taskmaster-org-file))))
 
-(defun claude-code--get-most-recent-workspace ()
-  "Get the most recent workspace from the taskmaster org file."
+(defun claude-code--get-most-recent-buffer ()
+  "Get the most recent Claude buffer name from the taskmaster org file."
   (when (file-exists-p claude-code-taskmaster-org-file)
     (with-temp-buffer
       (insert-file-contents claude-code-taskmaster-org-file)
       (goto-char (point-max))
-      (when (re-search-backward "Workspace: .*elisp:(let ((default-directory \"\([^\"]+\)\"))" nil t)
+      (when (re-search-backward "Buffer: \\[\\[elisp:(switch-to-buffer \"\\([^\"]+\\)\")\\]\\[" nil t)
         (match-string 1)))))
 
 (defun claude-code--find-workspace-for-buffer (buffer-name)
@@ -280,35 +280,19 @@ This is intended to be called from Claude Code hooks via emacsclient."
 (defun claude-code-goto-recent-workspace ()
   "Go to the most recent workspace from the taskmaster org file."
   (interactive)
-  (if-let ((workspace-dir (claude-code--get-most-recent-workspace)))
-      ;; Try to find a Claude buffer in the workspace directory to use for detection
-      (let ((claude-buffers (cl-loop for buf in (buffer-list)
-                                     when (and (buffer-name buf)
-                                               (string-match-p "^\\*claude:" (buffer-name buf))
-                                               (string-match-p (regexp-quote workspace-dir) (buffer-name buf)))
-                                     return (buffer-name buf))))
-        (if claude-buffers
-            (claude-code--switch-to-workspace-for-buffer claude-buffers)
-          (message "No Claude buffer found for workspace directory: %s" workspace-dir)))
+  (if-let ((buffer-name (claude-code--get-most-recent-buffer)))
+      (claude-code--switch-to-workspace-for-buffer buffer-name)
     (message "No recent workspace found in taskmaster.org")))
 
 ;;;###autoload
 (defun claude-code-goto-recent-workspace-and-clear ()
   "Go to the most recent workspace and clear the org entry."
   (interactive)
-  (if-let ((workspace-dir (claude-code--get-most-recent-workspace)))
-      ;; Try to find a Claude buffer in the workspace directory to use for detection
-      (let ((claude-buffers (cl-loop for buf in (buffer-list)
-                                     when (and (buffer-name buf)
-                                               (string-match-p "^\\*claude:" (buffer-name buf))
-                                               (string-match-p (regexp-quote workspace-dir) (buffer-name buf)))
-                                     return (buffer-name buf))))
-        (if claude-buffers
-            (progn
-              (claude-code--switch-to-workspace-for-buffer claude-buffers)
-              (claude-code--clear-most-recent-org-entry)
-              (message "Switched to workspace and cleared org entry for buffer: %s" claude-buffers))
-          (message "No Claude buffer found for workspace directory: %s" workspace-dir)))
+  (if-let ((buffer-name (claude-code--get-most-recent-buffer)))
+      (progn
+        (claude-code--switch-to-workspace-for-buffer buffer-name)
+        (claude-code--clear-most-recent-org-entry)
+        (message "Switched to workspace and cleared org entry for buffer: %s" buffer-name))
     (message "No recent workspace found in taskmaster.org")))
 
 ;;;; Integration
