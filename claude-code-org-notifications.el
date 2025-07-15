@@ -16,13 +16,11 @@
 (require 'json)
 (require 'cl-lib)
 
-;; Declare functions from Doom Emacs workspaces
-(declare-function +workspace-list-names "workspaces")
-(declare-function +workspace-get "workspaces")
-(declare-function +workspace/switch-to "workspaces")
-(declare-function +workspace/switch-to-0 "workspaces")
-(declare-function +workspace-buffer-list "workspaces")
-(declare-function persp-parameter "persp-mode")
+;; Declare functions from perspective.el
+(declare-function persp-names "persp-mode")
+(declare-function persp-get-by-name "persp-mode")
+(declare-function persp-switch "persp-mode")
+(declare-function persp-buffers "persp-mode")
 
 ;;;; Customization
 
@@ -88,30 +86,30 @@ MESSAGE is the notification message to include in the TODO entry."
         (match-string 1)))))
 
 (defun claude-code--find-workspace-for-buffer (buffer-name)
-  "Find the workspace that contains the specified BUFFER-NAME."
-  (when (and (boundp 'doom-version) (fboundp '+workspace-list-names))
+  "Find the perspective that contains the specified BUFFER-NAME."
+  (when (featurep 'persp-mode)
     (let ((target-buffer (get-buffer buffer-name)))
       (when target-buffer
-        (cl-loop for workspace-name in (+workspace-list-names)
-                 for workspace = (+workspace-get workspace-name)
-                 when (and workspace
-                           (member target-buffer (+workspace-buffer-list workspace)))
-                 return workspace-name)))))
+        (cl-loop for persp-name in (persp-names)
+                 for persp = (persp-get-by-name persp-name)
+                 when (and persp
+                           (member target-buffer (persp-buffers persp)))
+                 return persp-name)))))
 
 (defun claude-code--switch-to-workspace-for-buffer (buffer-name)
-  "Switch to the workspace that contains the specified BUFFER-NAME and navigate to the buffer."
-  (if-let ((workspace-name (claude-code--find-workspace-for-buffer buffer-name)))
+  "Switch to the perspective that contains the specified BUFFER-NAME and navigate to the buffer."
+  (if-let ((persp-name (claude-code--find-workspace-for-buffer buffer-name)))
       (progn
-        (+workspace/switch-to workspace-name)
+        (persp-switch persp-name)
         (when-let ((target-buffer (get-buffer buffer-name)))
           (if-let ((window (get-buffer-window target-buffer)))
               ;; Buffer is visible, just select the window
               (select-window window)
             ;; Buffer is not visible, display it
             (switch-to-buffer target-buffer)))
-        (message "Switched to workspace: %s and navigated to buffer: %s" workspace-name buffer-name)
-        workspace-name)
-    (error "No workspace found for buffer: %s" buffer-name)))
+        (message "Switched to perspective: %s and navigated to buffer: %s" persp-name buffer-name)
+        persp-name)
+    (error "No perspective found for buffer: %s" buffer-name)))
 
 (defun claude-code--clear-most-recent-org-entry ()
   "Clear (mark as DONE) the most recent TODO entry in the taskmaster org file."
@@ -284,22 +282,22 @@ This is intended to be called from Claude Code hooks via emacsclient."
 
 ;;;###autoload
 (defun claude-code-goto-recent-workspace ()
-  "Go to the most recent workspace from the taskmaster org file."
+  "Go to the most recent perspective from the taskmaster org file."
   (interactive)
   (if-let ((buffer-name (claude-code--get-most-recent-buffer)))
       (claude-code--switch-to-workspace-for-buffer buffer-name)
-    (message "No recent workspace found in taskmaster.org")))
+    (message "No recent perspective found in taskmaster.org")))
 
 ;;;###autoload
 (defun claude-code-goto-recent-workspace-and-clear ()
-  "Go to the most recent workspace and clear the org entry."
+  "Go to the most recent perspective and clear the org entry."
   (interactive)
   (if-let ((buffer-name (claude-code--get-most-recent-buffer)))
       (progn
         (claude-code--switch-to-workspace-for-buffer buffer-name)
         (claude-code--clear-most-recent-org-entry)
-        (message "Switched to workspace and cleared org entry for buffer: %s" buffer-name))
-    (message "No recent workspace found in taskmaster.org")))
+        (message "Switched to perspective and cleared org entry for buffer: %s" buffer-name))
+    (message "No recent perspective found in taskmaster.org")))
 
 ;;;; Integration
 
