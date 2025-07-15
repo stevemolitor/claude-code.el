@@ -99,11 +99,13 @@ MESSAGE is the notification message to include in the TODO entry."
                  return workspace-name)))))
 
 (defun claude-code--switch-to-workspace-for-buffer (buffer-name)
-  "Switch to the workspace that contains the specified BUFFER-NAME."
+  "Switch to the workspace that contains the specified BUFFER-NAME and switch to the buffer."
   (if-let ((workspace-name (claude-code--find-workspace-for-buffer buffer-name)))
       (progn
         (+workspace/switch-to workspace-name)
-        (message "Switched to workspace: %s" workspace-name)
+        (when (get-buffer buffer-name)
+          (switch-to-buffer buffer-name))
+        (message "Switched to workspace: %s and buffer: %s" workspace-name buffer-name)
         workspace-name)
     (error "No workspace found for buffer: %s" buffer-name)))
 
