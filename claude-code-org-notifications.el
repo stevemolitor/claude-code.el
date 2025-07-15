@@ -22,6 +22,13 @@
 (declare-function persp-switch "persp-mode")
 (declare-function persp-buffers "persp-mode")
 
+;; Constants
+(defconst claude-code-notification-buffer-name "*Claude Code Notification*"
+  "Name of the notification buffer.")
+
+(defconst claude-code-org-todo-pattern "^\* TODO Claude task completed"
+  "Pattern to match Claude task entries in org file.")
+
 ;;;; Customization
 
 (defcustom claude-code-taskmaster-org-file (expand-file-name "~/.claude/taskmaster.org")
@@ -121,7 +128,7 @@ MESSAGE is the notification message to include in the TODO entry."
     (with-temp-buffer
       (insert-file-contents claude-code-taskmaster-org-file)
       (goto-char (point-max))
-      (when (re-search-backward "^\* TODO Claude task completed" nil t)
+      (when (re-search-backward claude-code-org-todo-pattern nil t)
         (replace-match "* DONE Claude task completed")
         (write-region (point-min) (point-max) claude-code-taskmaster-org-file)))))
 
@@ -133,7 +140,7 @@ MESSAGE is the notification message to include in the TODO entry."
     ;; We're in the taskmaster.org file, delete current entry
     (save-excursion
       (org-back-to-heading t)
-      (when (looking-at "^\* TODO Claude task completed")
+      (when (looking-at claude-code-org-todo-pattern)
         ;; Delete the entire entry (from heading to next heading or end of buffer)
         (let ((start (point)))
           (if (outline-next-heading)
@@ -198,11 +205,11 @@ BUFFER-NAME-OVERRIDE is the name of the Claude buffer.
 Creates a notification buffer with a clickable button to switch to the
 specified Claude buffer and adds an entry to the taskmaster org file.
 This is intended to be called from Claude Code hooks via emacsclient."
-  (let* ((notification-buffer "*Claude Code Notification*")
+  (let* ((notification-buffer claude-code-notification-buffer-name)
          (target-buffer (when buffer-name-override (get-buffer buffer-name-override)))
          (has-workspace (and buffer-name-override 
-                            (claude-code--get-workspace-from-buffer-name buffer-name-override))))
-    
+                             (claude-code--get-workspace-from-buffer-name buffer-name-override))))
+
     ;; Add entry to org file
     (claude-code--add-org-todo-entry buffer-name-override message)
     
@@ -263,7 +270,7 @@ This is intended to be called from Claude Code hooks via emacsclient."
         ;; Auto-dismiss timer
         (run-with-timer 10 nil `(lambda ()
                                   (when (buffer-live-p (get-buffer ,notification-buffer))
-                                    (claude-code--dismiss-and-kill-buffer ,notification-buffer)))))))
+                                    (claude-code--dismiss-and-kill-buffer ,notification-buffer))))))))
 
 ;;;###autoload
 (defun claude-code-test-notification ()
