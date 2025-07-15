@@ -745,11 +745,8 @@ _BACKEND is the terminal backend type (should be \\='vterm)."
   (advice-add 'vterm--filter :around #'claude-code--vterm-bell-detector)
   ;; Set up multi-line buffering to prevent flickering
   (advice-add 'vterm--filter :around #'claude-code--vterm-multiline-buffer-filter)
-  
-  ;; Export CLAUDE_BUFFER_NAME environment variable in the shell session
-  ;; This ensures child processes (like Claude Code hooks) can access it
-  (when-let ((buffer-name (buffer-name)))
-    (vterm-send-string (format "export CLAUDE_BUFFER_NAME='%s'\n" buffer-name))))
+
+  )
 
 (cl-defmethod claude-code--term-customize-faces ((_backend (eql vterm)))
   "Apply face customizations for vterm terminal.
@@ -1779,57 +1776,57 @@ hooks via emacsclient."
         
         (if (and target-buffer (buffer-live-p target-buffer))
             (insert-button "Switch to Claude buffer"
-                          'action (lambda (_button)
-                                    (when (buffer-live-p target-buffer)
-                                      (switch-to-buffer target-buffer)
-                                      (kill-buffer notification-buffer)))
-                          'help-echo (format "Click to switch to %s" actual-buffer-name))
-          (insert (format "Buffer '%s' not found or no longer exists." (or actual-buffer-name "unknown"))))
-        
-        (goto-char (point-min))
-        (setq buffer-read-only t))
-      
-      ;; Display the notification buffer
-      (display-buffer notification-buffer)
-      
-      ;; Auto-dismiss after 10 seconds
-      (run-with-timer 10 nil (lambda ()
-                              (when (buffer-live-p (get-buffer notification-buffer))
-                                (kill-buffer notification-buffer)))))))
 
-;; Check if Doom Emacs is available and configure popup rule
-(when (and (boundp 'doom-version) (fboundp 'set-popup-rule!))
-  (set-popup-rule! "^\\*Claude Code Notification\\*$"
-    :side 'bottom
-    :size 0.3
-    :select nil
-    :quit t))
+        (if (and target-buffer (buffer-live-p target-buffer))
+            (insert-button "Switch to Claude buffer"
 
+                           (if (and target-buffer (buffer-live-p target-buffer))
+                               (insert-button "Switch to Claude buffer"
+                                              'action (lambda (_button)
+                                                        (when (buffer-live-p target-buffer)
+                                                          (switch-to-buffer target-buffer)
+                                                          (kill-buffer notification-buffer)))
+                                              'help-echo (format "Click to switch to %s" actual-buffer-name))
+                             (setq buffer-read-only t))
+
+                           ;; Display the notification buffer
+                           (display-buffer notification-buffer)
+
+                           ;; Auto-dismiss after 10 seconds
+                           (run-with-timer 10 nil (lambda ()
+
+                                                    ;; Auto-dismiss after 10 seconds
+
+                                                    (when (buffer-live-p (get-buffer notification-buffer))
+                                                      (kill-buffer notification-buffer)))))))
+      (set-popup-rule! "^\\*Claude Code Notification\\*$"
+        :side 'bottom
+        :size 0.3
+        :select nil
+        :quit t))
+;;;###autoload
 ;;;; Extensions
 
-;;;###autoload
-(defun claude-code-load-org-notifications ()
-  "Load the org mode notification queue extension for Claude Code.
+
+    (defun claude-code-load-org-notifications ()
+      "Load the org mode notification queue extension for Claude Code.
 
 This provides persistent task tracking in ~/.claude/taskmaster.org with
 timestamps and clickable buffer links, plus smart popup notifications."
-  (interactive)
-  (require 'claude-code-org-notifications)
-  (message "Claude Code org notifications loaded. Use M-x claude-code-setup-hooks to configure."))
+      (interactive)
+      (require 'claude-code-org-notifications)
+      (message "Claude Code org notifications loaded. Use M-x claude-code-setup-hooks to configure."))
 
 ;;;; Mode definition
-;;;###autoload
-(define-minor-mode claude-code-mode
-  "Minor mode for interacting with Claude AI CLI.
+
+    (define-minor-mode claude-code-mode
+      "Minor mode for interacting with Claude AI CLI.
 
 When enabled, provides functionality for starting, sending commands to,
 and managing Claude sessions."
-  :init-value nil
-  :lighter " Claude"
-  :global t
-  :group 'claude-code)
-
-;;;; Provide the feature
-(provide 'claude-code)
+      :init-value nil
+      :lighter " Claude"
+      :global t
+      :group 'claude-code)
 
 ;;; claude-code.el ends here

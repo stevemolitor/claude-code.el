@@ -14,7 +14,7 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 - **Continue Conversations** - Resume previous sessions or fork to earlier points
 - **Read-Only Mode** - Toggle to select and copy text with normal Emacs commands and keybindings
 - **Mode Cycling** - Quick switch between default, auto-accept edits, and plan modes
-- **Desktop Notifications** - Get notified when Claude finishes processing
+- **Enhanced Notifications** - Clickable notifications with optional Org mode task tracking
 - **Terminal Choice** - Works with both eat and vterm backends
 - **Fully Customizable** - Configure keybindings, notifications, and display preferences
 
@@ -218,7 +218,65 @@ You can change this behavior by customizing `claude-code-newline-keybinding-styl
 
 ## Desktop Notifications
 
-claude-code.el notifies you when Claude finishes processing and is waiting for input. By default, it displays a message in the minibuffer and pulses the modeline for visual feedback.
+claude-code.el notifies you when Claude finishes processing and is waiting for input. By default, it displays a message in the minibuffer and pulses the modeline for visual feedback. Enhanced notification features include clickable buffer links and optional Org mode task tracking.
+
+### Enhanced Notification System
+
+The enhanced notification system provides clickable notifications that allow you to jump directly to Claude buffers:
+
+- When Claude finishes a task, a notification buffer appears with a clickable button
+- Click the button to instantly switch to the Claude buffer
+- Notifications auto-dismiss after 10 seconds to reduce clutter
+- Works with both task completion and session termination events
+
+### Org Mode Task Tracking
+
+claude-code.el includes an optional Org mode integration that automatically tracks completed Claude tasks in a persistent log:
+
+#### Features
+
+- **Persistent Task Log**: All completed Claude tasks are saved to `~/.claude/taskmaster.org`
+- **Automatic Timestamps**: Each task entry includes completion timestamp
+- **Clickable Buffer Links**: Elisp links in org entries allow instant buffer switching
+- **Smart Display**: Popup notifications only appear when Claude buffer is not currently visible (taskmaster.org entries are always created)
+- **Dual Event Tracking**: Captures both task completion and session stop events
+
+#### Setup
+
+To enable Org mode notifications, add this to your configuration:
+
+```elisp
+;; Load the org notifications system
+(require 'claude-code-org-notifications)
+
+;; Automatically configure Claude Code hooks for notifications
+(claude-code-setup-hooks)
+```
+
+This will:
+1. Create the necessary directory structure (`~/.claude/`)
+2. Generate or update your Claude Code settings.json with notification hooks
+3. Enable automatic task logging to the taskmaster.org file
+
+#### Manual Hook Configuration
+
+If you prefer to manually configure hooks or already have a settings.json file, you can call:
+
+```elisp
+(claude-code-setup-hooks)
+```
+
+This function intelligently merges notification hooks with your existing configuration.
+
+#### Hook Context Variables
+
+Claude Code automatically exports the `CLAUDE_BUFFER_NAME` environment variable to the shell session, making it available to hooks and child processes. This allows hooks to:
+
+- Identify which Claude buffer triggered the notification
+- Pass buffer context to external notification handlers
+- Enable buffer-specific actions in custom scripts
+
+The environment variable contains the full buffer name (e.g., `*claude:/path/to/project:default*`) and is automatically set when Claude starts.
 
 ### macOS Native Notifications
 

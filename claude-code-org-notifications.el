@@ -37,16 +37,26 @@ with timestamps and links back to the original Claude buffers."
   "Format current time as an org mode timestamp."
   (format-time-string "[%Y-%m-%d %a %H:%M]"))
 
+(defun claude-code--get-workspace-from-buffer-name (buffer-name)
+  "Extract workspace directory from Claude BUFFER-NAME.
+For example, *claude:/path/to/project/* returns /path/to/project/."
+  (when (and buffer-name (string-match "^\\*claude:\\([^:]+\\)\\(?::\\([^*]+\\)\\)?\\*$" buffer-name))
+    (match-string 1 buffer-name)))
+
 (defun claude-code--add-org-todo-entry (buffer-name message)
   "Add a TODO entry to the taskmaster org file.
 
 BUFFER-NAME is the name of the Claude buffer that completed a task.
 MESSAGE is the notification message to include in the TODO entry."
   (claude-code--ensure-claude-directory)
-  (let ((timestamp (claude-code--format-org-timestamp))
-        (buffer-link (if buffer-name
-                         (format "[[elisp:(switch-to-buffer \"%s\")][%s]]" buffer-name buffer-name)
-                       "Unknown buffer")))
+  (let* ((timestamp (claude-code--format-org-timestamp))
+         (buffer-link (if buffer-name
+                          (format "[[elisp:(switch-to-buffer \"%s\")][%s]]" buffer-name buffer-name)
+                        "Unknown buffer"))
+         (workspace-dir (claude-code--get-workspace-from-buffer-name buffer-name))
+         (workspace-link (if workspace-dir
+                             (format "[[elisp:(let ((default-directory \"%s\")) (+workspace/switch-to-0))][%s]]" workspace-dir (file-name-nondirectory (directory-file-name workspace-dir)))
+                           "Unknown workspace")))
     (with-temp-buffer
       (when (file-exists-p claude-code-taskmaster-org-file)
         (insert-file-contents claude-code-taskmaster-org-file))
@@ -55,6 +65,7 @@ MESSAGE is the notification message to include in the TODO entry."
       (insert (format "* TODO Claude task completed %s\n" timestamp))
       (insert (format "  Message: %s\n" (or message "Task completed")))
       (insert (format "  Buffer: %s\n" buffer-link))
+      (insert (format "  Workspace: %s\n" workspace-link))
       (insert "\n")
       (write-region (point-min) (point-max) claude-code-taskmaster-org-file))))
 
@@ -80,7 +91,8 @@ This is intended to be called from Claude Code hooks via emacsclient."
                                  message
                                buffer-name-override))
          (notification-buffer "*Claude Code Notification*")
-         (target-buffer (when actual-buffer-name (get-buffer actual-buffer-name))))
+         (target-buffer (when actual-buffer-name (get-buffer actual-buffer-name)))
+         (workspace-dir (claude-code--get-workspace-from-buffer-name actual-buffer-name)))
     
     ;; Add entry to org file
     (claude-code--add-org-todo-entry actual-buffer-name actual-message)
@@ -103,7 +115,17 @@ This is intended to be called from Claude Code hooks via emacsclient."
                              'help-echo (format "Click to switch to %s" actual-buffer-name))
             (insert (format "Buffer '%s' not found or no longer exists." (or actual-buffer-name "unknown"))))
           
-          (insert "\n\n")
+          (insert "\n")
+          (when workspace-dir
+            (insert-button "Open Workspace"
+                           'action (lambda (_button)
+                                     (let ((default-directory workspace-dir))
+                                       (+workspace/switch-to-0))
+                                     (kill-buffer notification-buffer))
+                           'help-echo (format "Click to switch to workspace: %s" workspace-dir))
+            (insert "\n"))
+          
+          (insert "\n")
           (insert-button "View Task Queue"
                          'action (lambda (_button)
                                    (find-file claude-code-taskmaster-org-file)
