@@ -14,6 +14,15 @@
 ;;; Code:
 
 (require 'json)
+(require 'cl-lib)
+
+;; Declare functions from Doom Emacs workspaces
+(declare-function +workspace-list-names "workspaces")
+(declare-function +workspace-get "workspaces")
+(declare-function +workspace/switch-to "workspaces")
+(declare-function +workspace/switch-to-0 "workspaces")
+(declare-function +workspace-buffer-list "workspaces")
+(declare-function persp-parameter "persp-mode")
 
 ;;;; Customization
 
@@ -55,7 +64,7 @@ MESSAGE is the notification message to include in the TODO entry."
                         "Unknown buffer"))
          (workspace-dir (claude-code--get-workspace-from-buffer-name buffer-name))
          (workspace-link (if workspace-dir
-                             (format "[[elisp:(let ((default-directory \"%s\")) (+workspace/switch-to-0))][%s]]" workspace-dir (file-name-nondirectory (directory-file-name workspace-dir)))
+                             (format "[[elisp:(claude-code--switch-to-workspace-for-buffer \"%s\")][%s]]" buffer-name (file-name-nondirectory (directory-file-name workspace-dir)))
                            "Unknown workspace")))
     (with-temp-buffer
       (when (file-exists-p claude-code-taskmaster-org-file)
@@ -77,6 +86,26 @@ MESSAGE is the notification message to include in the TODO entry."
       (goto-char (point-max))
       (when (re-search-backward "Workspace: .*elisp:(let ((default-directory \"\([^\"]+\)\"))" nil t)
         (match-string 1)))))
+
+(defun claude-code--find-workspace-for-buffer (buffer-name)
+  "Find the workspace that contains the specified BUFFER-NAME."
+  (when (and (boundp 'doom-version) (fboundp '+workspace-list-names))
+    (let ((target-buffer (get-buffer buffer-name)))
+      (when target-buffer
+        (cl-loop for workspace-name in (+workspace-list-names)
+                 for workspace = (+workspace-get workspace-name)
+                 when (and workspace
+                           (member target-buffer (+workspace-buffer-list workspace)))
+                 return workspace-name)))))
+
+(defun claude-code--switch-to-workspace-for-buffer (buffer-name)
+  "Switch to the workspace that contains the specified BUFFER-NAME."
+  (if-let ((workspace-name (claude-code--find-workspace-for-buffer buffer-name)))
+      (progn
+        (+workspace/switch-to workspace-name)
+        (message "Switched to workspace: %s" workspace-name)
+        workspace-name)
+    (error "No workspace found for buffer: %s" buffer-name)))
 
 (defun claude-code--clear-most-recent-org-entry ()
   "Clear (mark as DONE) the most recent TODO entry in the taskmaster org file."
@@ -131,18 +160,16 @@ This is intended to be called from Claude Code hooks via emacsclient."
           (when workspace-dir
             (insert-button "Open Workspace"
                            'action `(lambda (_button)
-                                      (let ((default-directory ,workspace-dir))
-                                        (+workspace/switch-to-0))
+                                      (claude-code--switch-to-workspace-for-buffer ,buffer-name-override)
                                       (kill-buffer ,notification-buffer))
-                           'help-echo (format "Click to switch to workspace: %s" workspace-dir))
+                           'help-echo (format "Click to switch to workspace for buffer: %s" buffer-name-override))
             (insert "   ")
             (insert-button "Open & Clear"
                            'action `(lambda (_button)
-                                      (let ((default-directory ,workspace-dir))
-                                        (+workspace/switch-to-0))
+                                      (claude-code--switch-to-workspace-for-buffer ,buffer-name-override)
                                       (claude-code--clear-most-recent-org-entry)
                                       (kill-buffer ,notification-buffer))
-                           'help-echo (format "Click to switch to workspace and clear org entry: %s" workspace-dir))
+                           'help-echo (format "Click to switch to workspace and clear org entry for buffer: %s" buffer-name-override))
             (insert "\n"))
           
           (insert "\n")
@@ -175,12 +202,12 @@ This is intended to be called from Claude Code hooks via emacsclient."
          (emacsclient-cmd (executable-find "emacsclient"))
          (hooks-config `((hooks . ((Notification . [((matcher . "")
                                                      (hooks . [((type . "command")
-                                                                (command . ,(format "BUFFER=\"$CLAUDE_BUFFER_NAME\"; %s --eval \"(require 'claude-code-org-notifications) (claude-code-handle-notification \\\"Claude task completed\\\" \\\"$BUFFER\\\")\""
+                                                                (command . ,(format "BUFFER=\"$CLAUDE_BUFFER_NAME\"; %s --eval \"(progn (require 'claude-code-org-notifications) (claude-code-handle-notification \\\"Claude task completed\\\" \\\"$BUFFER\\\"))\""
                                                                                     emacsclient-cmd)))]))])
 
                                    (Stop . [((matcher . "")
                                              (hooks . [((type . "command")
-                                                        (command . ,(format "BUFFER=\"$CLAUDE_BUFFER_NAME\"; %s --eval \"(require 'claude-code-org-notifications) (claude-code-handle-notification \\\"Claude session stopped\\\" \\\"$BUFFER\\\")\""
+                                                        (command . ,(format "BUFFER=\"$CLAUDE_BUFFER_NAME\"; %s --eval \"(progn (require 'claude-code-org-notifications) (claude-code-handle-notification \\\"Claude session stopped\\\" \\\"$BUFFER\\\"))\""
                                                                             emacsclient-cmd)))]))])))))
          (existing-config (when (file-exists-p settings-file)
                      (condition-case err
@@ -235,9 +262,15 @@ This is intended to be called from Claude Code hooks via emacsclient."
   "Go to the most recent workspace from the taskmaster org file."
   (interactive)
   (if-let ((workspace-dir (claude-code--get-most-recent-workspace)))
-      (let ((default-directory workspace-dir))
-        (+workspace/switch-to-0)
-        (message "Switched to workspace: %s" workspace-dir))
+      ;; Try to find a Claude buffer in the workspace directory to use for detection
+      (let ((claude-buffers (cl-loop for buf in (buffer-list)
+                                     when (and (buffer-name buf)
+                                               (string-match-p "^\\*claude:" (buffer-name buf))
+                                               (string-match-p (regexp-quote workspace-dir) (buffer-name buf)))
+                                     return (buffer-name buf))))
+        (if claude-buffers
+            (claude-code--switch-to-workspace-for-buffer claude-buffers)
+          (message "No Claude buffer found for workspace directory: %s" workspace-dir)))
     (message "No recent workspace found in taskmaster.org")))
 
 ;;;###autoload
@@ -245,11 +278,18 @@ This is intended to be called from Claude Code hooks via emacsclient."
   "Go to the most recent workspace and clear the org entry."
   (interactive)
   (if-let ((workspace-dir (claude-code--get-most-recent-workspace)))
-      (progn
-        (let ((default-directory workspace-dir))
-          (+workspace/switch-to-0))
-        (claude-code--clear-most-recent-org-entry)
-        (message "Switched to workspace and cleared org entry: %s" workspace-dir))
+      ;; Try to find a Claude buffer in the workspace directory to use for detection
+      (let ((claude-buffers (cl-loop for buf in (buffer-list)
+                                     when (and (buffer-name buf)
+                                               (string-match-p "^\\*claude:" (buffer-name buf))
+                                               (string-match-p (regexp-quote workspace-dir) (buffer-name buf)))
+                                     return (buffer-name buf))))
+        (if claude-buffers
+            (progn
+              (claude-code--switch-to-workspace-for-buffer claude-buffers)
+              (claude-code--clear-most-recent-org-entry)
+              (message "Switched to workspace and cleared org entry for buffer: %s" claude-buffers))
+          (message "No Claude buffer found for workspace directory: %s" workspace-dir)))
     (message "No recent workspace found in taskmaster.org")))
 
 ;;;; Integration
