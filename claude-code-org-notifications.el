@@ -75,7 +75,7 @@ MESSAGE is the notification message to include in the TODO entry."
       (insert (format "  Message: %s\n" (or message "Task completed")))
       (insert (format "  Buffer: %s\n" buffer-link))
       (insert (format "  Workspace: %s\n" workspace-link))
-      (insert (format "  Actions: [[elisp:(claude-code--clear-current-org-entry)][Clear]] | [[elisp:(claude-code--switch-to-workspace-for-buffer \"%s\")][Go to Workspace]]\n" buffer-name))
+      (insert (format "  Actions: [[elisp:(claude-code--switch-to-workspace-for-buffer \"%s\")][Go to Workspace]] | [[elisp:(claude-code--clear-current-org-entry-and-switch \"%s\")][Clear and Go to Workspace]]\n" buffer-name buffer-name))
       (insert "\n")
       (write-region (point-min) (point-max) claude-code-taskmaster-org-file))))
 
@@ -118,18 +118,24 @@ MESSAGE is the notification message to include in the TODO entry."
         (replace-match "* DONE Claude task completed")
         (write-region (point-min) (point-max) claude-code-taskmaster-org-file)))))
 
-(defun claude-code--clear-current-org-entry ()
-  "Clear (mark as DONE) the current TODO entry under point in the taskmaster org file."
+(defun claude-code--clear-current-org-entry-and-switch (buffer-name)
+  "Delete the current TODO entry and switch to workspace for BUFFER-NAME."
   (interactive)
   (when (and (buffer-file-name)
              (string= (file-name-nondirectory (buffer-file-name)) "taskmaster.org"))
-    ;; We're in the taskmaster.org file, mark current entry as DONE
+    ;; We're in the taskmaster.org file, delete current entry
     (save-excursion
       (org-back-to-heading t)
       (when (looking-at "^\* TODO Claude task completed")
-        (replace-match "* DONE Claude task completed")
+        ;; Delete the entire entry (from heading to next heading or end of buffer)
+        (let ((start (point)))
+          (if (outline-next-heading)
+              (delete-region start (point))
+            (delete-region start (point-max))))
         (save-buffer)
-        (message "Marked current entry as DONE")))))
+        (message "Deleted entry and switching to workspace...")
+        ;; Switch to workspace
+        (claude-code--switch-to-workspace-for-buffer buffer-name)))))
 
 ;;;; Enhanced notification system
 
