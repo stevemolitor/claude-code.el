@@ -17,6 +17,10 @@
 (require 'project)
 (require 'cl-lib)
 
+;; Declare functions from claude-code-org-notifications.el
+(declare-function claude-code-goto-recent-workspace "claude-code-org-notifications")
+(declare-function claude-code-goto-recent-workspace-and-clear "claude-code-org-notifications")
+
 ;;;; Customization options
 (defgroup claude-code nil
   "Claude AI interface for Emacs."
@@ -321,6 +325,8 @@ for each directory across multiple invocations.")
     (define-key map (kbd "2") 'claude-code-send-2)
     (define-key map (kbd "3") 'claude-code-send-3)
     (define-key map (kbd "M") 'claude-code-cycle-mode)
+    (define-key map (kbd "w") 'claude-code-goto-recent-workspace)
+    (define-key map (kbd "W") 'claude-code-goto-recent-workspace-and-clear)
     map)
   "Keymap for Claude commands.")
 
@@ -358,6 +364,10 @@ for each directory across multiple invocations.")
     ("1" "Send \"1\"" claude-code-send-1)
     ("2" "Send \"2\"" claude-code-send-2)
     ("3" "Send \"3\"" claude-code-send-3)
+    ]
+   ["Workspace Navigation"
+    ("w" "Go to recent workspace" claude-code-goto-recent-workspace)
+    ("W" "Go to workspace and clear" claude-code-goto-recent-workspace-and-clear)
     ]])
 
 ;;;###autoload (autoload 'claude-code-slash-commands "claude-code" nil t)
@@ -1744,89 +1754,30 @@ enter Claude commands."
        (claude-code-read-only-mode)
      (claude-code-exit-read-only-mode))))
 
-;;;; Notification System
-
-;;;###autoload
-(defun claude-code-handle-notification (message &optional buffer-name-override)
-  "Handle notification with clickable link to Claude buffer.
-
-MESSAGE is the notification message to display.
-BUFFER-NAME-OVERRIDE allows specifying a different buffer name than the
-environment variable. If MESSAGE looks like a buffer name (starts with *claude:),
-this function provides backwards compatibility by swapping the parameters.
-
-Creates a notification buffer with a clickable button to switch to the
-specified Claude buffer. This is intended to be called from Claude Code
-hooks via emacsclient."
-  (let* (;; Handle backwards compatibility: if message looks like a buffer name, swap parameters
-         (is-buffer-name (and message (string-match-p "^\\*claude:" message)))
-         (actual-message (if is-buffer-name 
-                             (or buffer-name-override "Task completed")
-                           message))
-         (actual-buffer-name (if is-buffer-name
-                                 message
-                               buffer-name-override))
-         (notification-buffer "*Claude Code Notification*")
-         (target-buffer (when actual-buffer-name (get-buffer actual-buffer-name))))
-    (with-current-buffer (get-buffer-create notification-buffer)
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (insert (format "%s\n" (or actual-message "Claude notification")))
-        (insert (format "Buffer: %s\n\n" (or actual-buffer-name "unknown buffer")))
-        
-        (if (and target-buffer (buffer-live-p target-buffer))
-            (insert-button "Switch to Claude buffer"
-
-        (if (and target-buffer (buffer-live-p target-buffer))
-            (insert-button "Switch to Claude buffer"
-
-                           (if (and target-buffer (buffer-live-p target-buffer))
-                               (insert-button "Switch to Claude buffer"
-                                              'action (lambda (_button)
-                                                        (when (buffer-live-p target-buffer)
-                                                          (switch-to-buffer target-buffer)
-                                                          (kill-buffer notification-buffer)))
-                                              'help-echo (format "Click to switch to %s" actual-buffer-name))
-                             (setq buffer-read-only t))
-
-                           ;; Display the notification buffer
-                           (display-buffer notification-buffer)
-
-                           ;; Auto-dismiss after 10 seconds
-                           (run-with-timer 10 nil (lambda ()
-
-                                                    ;; Auto-dismiss after 10 seconds
-
-                                                    (when (buffer-live-p (get-buffer notification-buffer))
-                                                      (kill-buffer notification-buffer)))))))
-      (set-popup-rule! "^\\*Claude Code Notification\\*$"
-        :side 'bottom
-        :size 0.3
-        :select nil
-        :quit t))
-;;;###autoload
 ;;;; Extensions
 
-
-    (defun claude-code-load-org-notifications ()
-      "Load the org mode notification queue extension for Claude Code.
+;;;###autoload
+(defun claude-code-load-org-notifications ()
+  "Load the org mode notification queue extension for Claude Code.
 
 This provides persistent task tracking in ~/.claude/taskmaster.org with
 timestamps and clickable buffer links, plus smart popup notifications."
-      (interactive)
-      (require 'claude-code-org-notifications)
-      (message "Claude Code org notifications loaded. Use M-x claude-code-setup-hooks to configure."))
+  (interactive)
+  (require 'claude-code-org-notifications)
+  (message "Claude Code org notifications loaded. Use M-x claude-code-setup-hooks to configure."))
 
 ;;;; Mode definition
 
-    (define-minor-mode claude-code-mode
-      "Minor mode for interacting with Claude AI CLI.
+(define-minor-mode claude-code-mode
+  "Minor mode for interacting with Claude AI CLI.
 
 When enabled, provides functionality for starting, sending commands to,
 and managing Claude sessions."
-      :init-value nil
-      :lighter " Claude"
-      :global t
-      :group 'claude-code)
+  :init-value nil
+  :lighter " Claude"
+  :global t
+  :group 'claude-code)
+
+(provide 'claude-code)
 
 ;;; claude-code.el ends here

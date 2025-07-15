@@ -216,6 +216,11 @@ You can change this behavior by customizing `claude-code-newline-keybinding-styl
 - `claude-code-send-2` (`C-c c 2`) - Send "2" to Claude (useful for selecting the second option when Claude presents a numbered menu)
 - `claude-code-send-3` (`C-c c 3`) - Send "3" to Claude (useful for selecting the third option when Claude presents a numbered menu)
 
+#### Workspace Navigation Commands
+
+- `claude-code-goto-recent-workspace` (`C-c c w`) - Go to the most recent workspace from the taskmaster org file
+- `claude-code-goto-recent-workspace-and-clear` (`C-c c W`) - Go to the most recent workspace and mark the org entry as DONE
+
 ## Desktop Notifications
 
 claude-code.el notifies you when Claude finishes processing and is waiting for input. By default, it displays a message in the minibuffer and pulses the modeline for visual feedback. Enhanced notification features include clickable buffer links and optional Org mode task tracking.
@@ -277,6 +282,18 @@ Claude Code automatically exports the `CLAUDE_BUFFER_NAME` environment variable 
 - Enable buffer-specific actions in custom scripts
 
 The environment variable contains the full buffer name (e.g., `*claude:/path/to/project:default*`) and is automatically set when Claude starts.
+
+#### Workspace Integration
+
+The notification system includes workspace support that integrates with project-based workflows:
+
+- **Automatic Workspace Detection**: Claude automatically detects your current project/workspace directory when starting
+- **Clickable Workspace Links**: Org mode entries include clickable workspace links that switch to the workspace directory
+- **Workspace Buttons**: Notification popups include "Open Workspace" and "Open & Clear" buttons for quick workspace switching
+- **Multiple Instance Support**: Works seamlessly with multiple Claude instances in the same workspace
+- **Keyboard Commands**: Use `C-c c w` to go to the most recent workspace or `C-c c W` to go there and clear the org entry
+
+When Claude completes a task, the workspace information is automatically extracted from the buffer name and included in both the org mode log entries and notification popups. The "Open & Clear" button and `C-c c W` command allow you to quickly navigate to a workspace and mark the corresponding org entry as DONE, helping you maintain a clean task queue.
 
 ### macOS Native Notifications
 

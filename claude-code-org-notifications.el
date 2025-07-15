@@ -69,6 +69,25 @@ MESSAGE is the notification message to include in the TODO entry."
       (insert "\n")
       (write-region (point-min) (point-max) claude-code-taskmaster-org-file))))
 
+(defun claude-code--get-most-recent-workspace ()
+  "Get the most recent workspace from the taskmaster org file."
+  (when (file-exists-p claude-code-taskmaster-org-file)
+    (with-temp-buffer
+      (insert-file-contents claude-code-taskmaster-org-file)
+      (goto-char (point-max))
+      (when (re-search-backward "Workspace: .*elisp:(let ((default-directory \"\([^\"]+\)\"))" nil t)
+        (match-string 1)))))
+
+(defun claude-code--clear-most-recent-org-entry ()
+  "Clear (mark as DONE) the most recent TODO entry in the taskmaster org file."
+  (when (file-exists-p claude-code-taskmaster-org-file)
+    (with-temp-buffer
+      (insert-file-contents claude-code-taskmaster-org-file)
+      (goto-char (point-max))
+      (when (re-search-backward "^\* TODO Claude task completed" nil t)
+        (replace-match "* DONE Claude task completed")
+        (write-region (point-min) (point-max) claude-code-taskmaster-org-file)))))
+
 ;;;; Enhanced notification system
 
 ;;;###autoload
@@ -76,60 +95,61 @@ MESSAGE is the notification message to include in the TODO entry."
   "Handle notification with clickable link to Claude buffer and org queue entry.
 
 MESSAGE is the notification message to display and log.
-BUFFER-NAME-OVERRIDE allows specifying a different buffer name than the
-environment variable.
+BUFFER-NAME-OVERRIDE is the name of the Claude buffer.
 
 Creates a notification buffer with a clickable button to switch to the
 specified Claude buffer and adds an entry to the taskmaster org file.
 This is intended to be called from Claude Code hooks via emacsclient."
-  (let* (;; Handle backwards compatibility: if message looks like a buffer name, swap parameters
-         (is-buffer-name (and message (string-match-p "^\\*claude:" message)))
-         (actual-message (if is-buffer-name
-                             (or buffer-name-override "Task completed")
-                           message))
-         (actual-buffer-name (if is-buffer-name
-                                 message
-                               buffer-name-override))
-         (notification-buffer "*Claude Code Notification*")
-         (target-buffer (when actual-buffer-name (get-buffer actual-buffer-name)))
-         (workspace-dir (claude-code--get-workspace-from-buffer-name actual-buffer-name)))
+  (let* ((notification-buffer "*Claude Code Notification*")
+         (target-buffer (when buffer-name-override (get-buffer buffer-name-override)))
+         (workspace-dir (claude-code--get-workspace-from-buffer-name buffer-name-override)))
     
     ;; Add entry to org file
-    (claude-code--add-org-todo-entry actual-buffer-name actual-message)
+    (claude-code--add-org-todo-entry buffer-name-override message)
     
-    ;; Only show popup if the Claude buffer is not currently visible
-    (unless (and target-buffer (get-buffer-window target-buffer))
+    ;; Only show popup if the Claude buffer is not currently visible or focused
+    (unless (and target-buffer 
+                 (or (get-buffer-window target-buffer)
+                     (eq (current-buffer) target-buffer)))
       ;; Create and display notification buffer
       (with-current-buffer (get-buffer-create notification-buffer)
         (let ((inhibit-read-only t))
           (erase-buffer)
-          (insert (format "Claude notification: %s\n" (or actual-message "Task completed")))
-          (insert (format "Buffer: %s\n\n" (or actual-buffer-name "unknown buffer")))
+          (insert (format "Claude notification: %s\n" (or message "Task completed")))
+          (insert (format "Buffer: %s\n\n" (or buffer-name-override "unknown buffer")))
           
           (if (and target-buffer (buffer-live-p target-buffer))
               (insert-button "Switch to Claude buffer"
-                             'action (lambda (_button)
-                                       (when (buffer-live-p target-buffer)
-                                         (switch-to-buffer target-buffer)
-                                         (kill-buffer notification-buffer)))
-                             'help-echo (format "Click to switch to %s" actual-buffer-name))
-            (insert (format "Buffer '%s' not found or no longer exists." (or actual-buffer-name "unknown"))))
+                             'action `(lambda (_button)
+                                        (when (buffer-live-p ,target-buffer)
+                                          (switch-to-buffer ,target-buffer)
+                                          (kill-buffer ,notification-buffer)))
+                             'help-echo (format "Click to switch to %s" buffer-name-override))
+            (insert (format "Buffer '%s' not found or no longer exists." (or buffer-name-override "unknown"))))
           
           (insert "\n")
           (when workspace-dir
             (insert-button "Open Workspace"
-                           'action (lambda (_button)
-                                     (let ((default-directory workspace-dir))
-                                       (+workspace/switch-to-0))
-                                     (kill-buffer notification-buffer))
+                           'action `(lambda (_button)
+                                      (let ((default-directory ,workspace-dir))
+                                        (+workspace/switch-to-0))
+                                      (kill-buffer ,notification-buffer))
                            'help-echo (format "Click to switch to workspace: %s" workspace-dir))
+            (insert "   ")
+            (insert-button "Open & Clear"
+                           'action `(lambda (_button)
+                                      (let ((default-directory ,workspace-dir))
+                                        (+workspace/switch-to-0))
+                                      (claude-code--clear-most-recent-org-entry)
+                                      (kill-buffer ,notification-buffer))
+                           'help-echo (format "Click to switch to workspace and clear org entry: %s" workspace-dir))
             (insert "\n"))
           
           (insert "\n")
           (insert-button "View Task Queue"
-                         'action (lambda (_button)
-                                   (find-file claude-code-taskmaster-org-file)
-                                   (kill-buffer notification-buffer))
+                         'action `(lambda (_button)
+                                    (find-file ,claude-code-taskmaster-org-file)
+                                    (kill-buffer ,notification-buffer))
                          'help-echo "Click to view the org mode task queue")
           
           (goto-char (point-min))
@@ -155,12 +175,12 @@ This is intended to be called from Claude Code hooks via emacsclient."
          (emacsclient-cmd (executable-find "emacsclient"))
          (hooks-config `((hooks . ((Notification . [((matcher . "")
                                                      (hooks . [((type . "command")
-                                                                (command . ,(format "BUFFER=\"$CLAUDE_BUFFER_NAME\"; %s --eval \"(claude-code-handle-notification \\\"Claude task completed\\\" \\\"$BUFFER\\\")\""
+                                                                (command . ,(format "BUFFER=\"$CLAUDE_BUFFER_NAME\"; %s --eval \"(require 'claude-code-org-notifications) (claude-code-handle-notification \\\"Claude task completed\\\" \\\"$BUFFER\\\")\""
                                                                                     emacsclient-cmd)))]))])
 
                                    (Stop . [((matcher . "")
                                              (hooks . [((type . "command")
-                                                        (command . ,(format "BUFFER=\"$CLAUDE_BUFFER_NAME\"; %s --eval \"(claude-code-handle-notification \\\"Claude session stopped\\\" \\\"$BUFFER\\\")\""
+                                                        (command . ,(format "BUFFER=\"$CLAUDE_BUFFER_NAME\"; %s --eval \"(require 'claude-code-org-notifications) (claude-code-handle-notification \\\"Claude session stopped\\\" \\\"$BUFFER\\\")\""
                                                                             emacsclient-cmd)))]))])))))
          (existing-config (when (file-exists-p settings-file)
                      (condition-case err
@@ -207,6 +227,30 @@ This is intended to be called from Claude Code hooks via emacsclient."
       ;; No hooks section, add it
       (push hooks-entry config-copy))
     config-copy))
+
+;;;; Workspace Navigation Commands
+
+;;;###autoload
+(defun claude-code-goto-recent-workspace ()
+  "Go to the most recent workspace from the taskmaster org file."
+  (interactive)
+  (if-let ((workspace-dir (claude-code--get-most-recent-workspace)))
+      (let ((default-directory workspace-dir))
+        (+workspace/switch-to-0)
+        (message "Switched to workspace: %s" workspace-dir))
+    (message "No recent workspace found in taskmaster.org")))
+
+;;;###autoload
+(defun claude-code-goto-recent-workspace-and-clear ()
+  "Go to the most recent workspace and clear the org entry."
+  (interactive)
+  (if-let ((workspace-dir (claude-code--get-most-recent-workspace)))
+      (progn
+        (let ((default-directory workspace-dir))
+          (+workspace/switch-to-0))
+        (claude-code--clear-most-recent-org-entry)
+        (message "Switched to workspace and cleared org entry: %s" workspace-dir))
+    (message "No recent workspace found in taskmaster.org")))
 
 ;;;; Integration
 
