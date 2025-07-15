@@ -106,7 +106,11 @@ MESSAGE is the notification message to include in the TODO entry."
               ;; Buffer is visible, just select the window
               (select-window window)
             ;; Buffer is not visible, display it
-            (switch-to-buffer target-buffer)))
+            (switch-to-buffer target-buffer))
+          ;; If using evil mode and this is a Claude buffer, enter insert mode
+          (when (and (boundp 'evil-mode) evil-mode
+                     (string-match-p "^\\*claude:" buffer-name))
+            (evil-insert-state)))
         (message "Switched to perspective: %s and navigated to buffer: %s" persp-name buffer-name)
         persp-name)
     (error "No perspective found for buffer: %s" buffer-name)))
@@ -139,6 +143,43 @@ MESSAGE is the notification message to include in the TODO entry."
         (message "Deleted entry and switching to workspace...")
         ;; Switch to workspace
         (claude-code--switch-to-workspace-for-buffer buffer-name)))))
+
+;;;; Notification dismissal system
+
+(defvar claude-code--notification-dismiss-active nil
+  "Whether notification dismiss mode is currently active.")
+
+(defvar claude-code--notification-buffer-name nil
+  "Name of the current notification buffer.")
+
+(defun claude-code--enable-notification-dismiss (buffer-name)
+  "Enable global notification dismissal for BUFFER-NAME."
+  (unless claude-code--notification-dismiss-active
+    (setq claude-code--notification-dismiss-active t
+          claude-code--notification-buffer-name buffer-name)
+    ;; Use overriding-local-map for higher precedence
+    (let ((map (make-sparse-keymap)))
+      (define-key map (kbd "<escape>") 'claude-code--dismiss-notification-if-visible)
+      (define-key map (kbd "q") 'claude-code--dismiss-notification-if-visible)
+      (setq overriding-local-map map))))
+
+(defun claude-code--disable-notification-dismiss ()
+  "Disable global notification dismissal and restore original ESC binding."
+  (when claude-code--notification-dismiss-active
+    (setq claude-code--notification-dismiss-active nil
+          claude-code--notification-buffer-name nil)
+    ;; Clear the overriding map
+    (setq overriding-local-map nil)))
+
+(defun claude-code--dismiss-notification-if-visible ()
+  "Dismiss notification if visible."
+  (interactive)
+  (when (and claude-code--notification-dismiss-active
+             claude-code--notification-buffer-name
+             (get-buffer-window claude-code--notification-buffer-name))
+    ;; Notification is visible, dismiss it
+    (kill-buffer claude-code--notification-buffer-name)
+    (claude-code--disable-notification-dismiss)))
 
 ;;;; Enhanced notification system
 
@@ -175,6 +216,11 @@ This is intended to be called from Claude Code hooks via emacsclient."
                              'action `(lambda (_button)
                                         (when (buffer-live-p ,target-buffer)
                                           (switch-to-buffer ,target-buffer)
+                                          ;; Enter insert mode if using evil
+                                          (when (and (boundp 'evil-mode) evil-mode
+                                                     (string-match-p "^\\*claude:" ,buffer-name-override))
+                                            (evil-insert-state))
+                                          (claude-code--disable-notification-dismiss)
                                           (kill-buffer ,notification-buffer)))
                              'help-echo (format "Click to switch to %s" buffer-name-override))
             (insert (format "Buffer '%s' not found or no longer exists." (or buffer-name-override "unknown"))))
@@ -184,6 +230,7 @@ This is intended to be called from Claude Code hooks via emacsclient."
             (insert-button "Open Workspace"
                            'action `(lambda (_button)
                                       (claude-code--switch-to-workspace-for-buffer ,buffer-name-override)
+                                      (claude-code--disable-notification-dismiss)
                                       (kill-buffer ,notification-buffer))
                            'help-echo (format "Click to switch to workspace for buffer: %s" buffer-name-override))
             (insert "   ")
@@ -191,6 +238,7 @@ This is intended to be called from Claude Code hooks via emacsclient."
                            'action `(lambda (_button)
                                       (claude-code--switch-to-workspace-for-buffer ,buffer-name-override)
                                       (claude-code--clear-most-recent-org-entry)
+                                      (claude-code--disable-notification-dismiss)
                                       (kill-buffer ,notification-buffer))
                            'help-echo (format "Click to switch to workspace and clear org entry for buffer: %s" buffer-name-override))
             (insert "\n"))
@@ -199,6 +247,7 @@ This is intended to be called from Claude Code hooks via emacsclient."
           (insert-button "View Task Queue"
                          'action `(lambda (_button)
                                     (find-file ,claude-code-taskmaster-org-file)
+                                    (claude-code--disable-notification-dismiss)
                                     (kill-buffer ,notification-buffer))
                          'help-echo "Click to view the org mode task queue")
           
@@ -206,7 +255,30 @@ This is intended to be called from Claude Code hooks via emacsclient."
           (setq buffer-read-only t))
         
         ;; Display the notification buffer
-        (display-buffer notification-buffer)))))
+        (let ((window (display-buffer notification-buffer)))
+          ;; Set up window-specific quit behavior like Doom popups
+          (set-window-parameter window 'quit-window 
+                                `(lambda ()
+                                   (interactive)
+                                   (claude-code--disable-notification-dismiss)
+                                   (quit-window nil ,window)))
+          
+          ;; Set up the notification dismiss system
+          (claude-code--enable-notification-dismiss notification-buffer)
+          
+          ;; Add quit-window keybinding to the buffer
+          (with-current-buffer notification-buffer
+            (local-set-key (kbd "q") `(lambda () 
+                                        (interactive) 
+                                        (claude-code--disable-notification-dismiss)
+                                        (quit-window)))
+            (local-set-key (kbd "<escape>") `(lambda () 
+                                               (interactive) 
+                                               (claude-code--disable-notification-dismiss)
+                                               (quit-window))))
+          
+
+          window)))))
 
 ;;;###autoload
 (defun claude-code-test-notification ()
@@ -233,31 +305,31 @@ This is intended to be called from Claude Code hooks via emacsclient."
                                                         (command . ,(format "BUFFER=\"$CLAUDE_BUFFER_NAME\"; %s --eval \"(progn (require 'claude-code-org-notifications) (claude-code-handle-notification \\\"Claude session stopped\\\" \\\"$BUFFER\\\"))\""
                                                                             emacsclient-cmd)))]))])))))
          (existing-config (when (file-exists-p settings-file)
-                     (condition-case err
-                         (json-read-file settings-file)
-                       (error
-                        (message "Warning: Could not parse existing settings.json: %s" (error-message-string err))
-                        nil))))
-  (new-config (if existing-config
-                  (let ((config-alist (if (hash-table-p existing-config)
-                                          (claude-code--hash-table-to-alist existing-config)
-                                        existing-config)))
-                    (claude-code--merge-hooks-config config-alist hooks-config))
-                hooks-config)))
+                            (condition-case err
+                                (json-read-file settings-file)
+                              (error
+                               (message "Warning: Could not parse existing settings.json: %s" (error-message-string err))
+                               nil))))
+         (new-config (if existing-config
+                         (let ((config-alist (if (hash-table-p existing-config)
+                                                 (claude-code--hash-table-to-alist existing-config)
+                                               existing-config)))
+                           (claude-code--merge-hooks-config config-alist hooks-config))
+                       hooks-config)))
 
-(unless emacsclient-cmd
-  (error "emacsclient not found in PATH. Please ensure Emacs server is properly installed"))
+    (unless emacsclient-cmd
+      (error "emacsclient not found in PATH. Please ensure Emacs server is properly installed"))
 
-;; Ensure Claude directory exists
-(unless (file-directory-p claude-dir)
-  (make-directory claude-dir t))
+    ;; Ensure Claude directory exists
+    (unless (file-directory-p claude-dir)
+      (make-directory claude-dir t))
 
-;; Write updated config with pretty formatting
-(with-temp-file settings-file
-  (let ((json-encoding-pretty-print t))
-    (insert (json-encode new-config))))
+    ;; Write updated config with pretty formatting
+    (with-temp-file settings-file
+      (let ((json-encoding-pretty-print t))
+        (insert (json-encode new-config))))
 
-(message "Claude Code notification hooks added to %s" settings-file)))
+    (message "Claude Code notification hooks added to %s" settings-file)))
 
 (defun claude-code--hash-table-to-alist (hash-table)
   "Convert HASH-TABLE to an alist."
@@ -301,13 +373,14 @@ This is intended to be called from Claude Code hooks via emacsclient."
 
 ;;;; Integration
 
-;; Check if Doom Emacs is available and configure popup rule
-(when (and (boundp 'doom-version) (fboundp 'set-popup-rule!))
-  (set-popup-rule! "^\\*Claude Code Notification\\*$"
-    :side 'bottom
-    :size 0.3
-    :select nil
-    :quit t))
+;; Configure display rule for notification buffer
+(add-to-list 'display-buffer-alist
+             '("^\\*Claude Code Notification\\*$"
+               (display-buffer-in-side-window)
+               (side . bottom)
+               (window-height . 0.3)
+               (select . nil)
+               (quit-window . kill)))
 
 (provide 'claude-code-org-notifications)
 
