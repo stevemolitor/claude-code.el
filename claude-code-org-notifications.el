@@ -181,6 +181,11 @@ MESSAGE is the notification message to include in the TODO entry."
     (kill-buffer claude-code--notification-buffer-name)
     (claude-code--disable-notification-dismiss)))
 
+(defun claude-code--dismiss-and-kill-buffer (buffer-name)
+  "Helper to dismiss notification and kill BUFFER-NAME."
+  (claude-code--disable-notification-dismiss)
+  (kill-buffer buffer-name))
+
 ;;;; Enhanced notification system
 
 ;;;###autoload
@@ -195,7 +200,8 @@ specified Claude buffer and adds an entry to the taskmaster org file.
 This is intended to be called from Claude Code hooks via emacsclient."
   (let* ((notification-buffer "*Claude Code Notification*")
          (target-buffer (when buffer-name-override (get-buffer buffer-name-override)))
-         (workspace-dir (claude-code--get-workspace-from-buffer-name buffer-name-override)))
+         (has-workspace (and buffer-name-override 
+                            (claude-code--get-workspace-from-buffer-name buffer-name-override))))
     
     ;; Add entry to org file
     (claude-code--add-org-todo-entry buffer-name-override message)
@@ -220,26 +226,23 @@ This is intended to be called from Claude Code hooks via emacsclient."
                                           (when (and (boundp 'evil-mode) evil-mode
                                                      (string-match-p "^\\*claude:" ,buffer-name-override))
                                             (evil-insert-state))
-                                          (claude-code--disable-notification-dismiss)
-                                          (kill-buffer ,notification-buffer)))
+                                          (claude-code--dismiss-and-kill-buffer ,notification-buffer)))
                              'help-echo (format "Click to switch to %s" buffer-name-override))
             (insert (format "Buffer '%s' not found or no longer exists." (or buffer-name-override "unknown"))))
           
           (insert "\n")
-          (when workspace-dir
+          (when has-workspace
             (insert-button "Open Workspace"
                            'action `(lambda (_button)
                                       (claude-code--switch-to-workspace-for-buffer ,buffer-name-override)
-                                      (claude-code--disable-notification-dismiss)
-                                      (kill-buffer ,notification-buffer))
+                                      (claude-code--dismiss-and-kill-buffer ,notification-buffer))
                            'help-echo (format "Click to switch to workspace for buffer: %s" buffer-name-override))
             (insert "   ")
             (insert-button "Open & Clear"
                            'action `(lambda (_button)
                                       (claude-code--switch-to-workspace-for-buffer ,buffer-name-override)
                                       (claude-code--clear-most-recent-org-entry)
-                                      (claude-code--disable-notification-dismiss)
-                                      (kill-buffer ,notification-buffer))
+                                      (claude-code--dismiss-and-kill-buffer ,notification-buffer))
                            'help-echo (format "Click to switch to workspace and clear org entry for buffer: %s" buffer-name-override))
             (insert "\n"))
           
@@ -247,38 +250,20 @@ This is intended to be called from Claude Code hooks via emacsclient."
           (insert-button "View Task Queue"
                          'action `(lambda (_button)
                                     (find-file ,claude-code-taskmaster-org-file)
-                                    (claude-code--disable-notification-dismiss)
-                                    (kill-buffer ,notification-buffer))
+                                    (claude-code--dismiss-and-kill-buffer ,notification-buffer))
                          'help-echo "Click to view the org mode task queue")
           
           (goto-char (point-min))
           (setq buffer-read-only t))
         
-        ;; Display the notification buffer
-        (let ((window (display-buffer notification-buffer)))
-          ;; Set up window-specific quit behavior like Doom popups
-          (set-window-parameter window 'quit-window 
-                                `(lambda ()
-                                   (interactive)
-                                   (claude-code--disable-notification-dismiss)
-                                   (quit-window nil ,window)))
-          
-          ;; Set up the notification dismiss system
-          (claude-code--enable-notification-dismiss notification-buffer)
-          
-          ;; Add quit-window keybinding to the buffer
-          (with-current-buffer notification-buffer
-            (local-set-key (kbd "q") `(lambda () 
-                                        (interactive) 
-                                        (claude-code--disable-notification-dismiss)
-                                        (quit-window)))
-            (local-set-key (kbd "<escape>") `(lambda () 
-                                               (interactive) 
-                                               (claude-code--disable-notification-dismiss)
-                                               (quit-window))))
-          
-
-          window)))))
+        ;; Display the notification buffer and set up dismissal
+        (display-buffer notification-buffer)
+        (claude-code--enable-notification-dismiss notification-buffer)
+        
+        ;; Auto-dismiss timer
+        (run-with-timer 10 nil `(lambda ()
+                                  (when (buffer-live-p (get-buffer ,notification-buffer))
+                                    (claude-code--dismiss-and-kill-buffer ,notification-buffer)))))))
 
 ;;;###autoload
 (defun claude-code-test-notification ()
