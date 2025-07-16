@@ -269,12 +269,25 @@ outputs."
   "Whether to buffer vterm output to prevent flickering on multi-line input.
 
 When non-nil, vterm output that appears to be redrawing multi-line
-input boxes will be buffered briefly (1ms) and processed in a single
+input boxes will be buffered briefly and processed in a single
 batch. This prevents the flickering that can occur when Claude redraws
 its input box as it expands to multiple lines.
 
 This only affects the vterm backend."
   :type 'boolean
+  :group 'claude-code-vterm)
+
+(defcustom claude-code-vterm-multiline-delay 0.01
+  "Delay in seconds before processing buffered vterm output.
+
+This controls how long vterm waits to collect output before processing
+it when `claude-code-vterm-buffer-multiline-output' is enabled.
+The delay should be long enough to collect bursts of updates but short
+enough to not be noticeable to the user.
+
+The default value of 0.01 seconds (10ms) provides a good balance
+between reducing flickering and maintaining responsiveness."
+  :type 'number
   :group 'claude-code-vterm)
 
 ;;;; Forward declrations for flycheck
@@ -1405,10 +1418,10 @@ INPUT is the terminal output string."
               ;; Cancel existing timer
               (when claude-code--vterm-multiline-buffer-timer
                 (cancel-timer claude-code--vterm-multiline-buffer-timer))
-              ;; Set timer with very short delay (1ms)
+              ;; Set timer with configurable delay
               ;; This is enough to collect a burst of updates but not noticeable to user
               (setq claude-code--vterm-multiline-buffer-timer
-                    (run-at-time 0.001 nil
+                    (run-at-time claude-code-vterm-multiline-delay nil
                                  (lambda (buf)
                                    (when (buffer-live-p buf)
                                      (with-current-buffer buf

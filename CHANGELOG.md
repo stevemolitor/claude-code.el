@@ -2,6 +2,13 @@
 
 All notable changes to claude-code.el will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- New `claude-code-vterm-multiline-delay` customization variable to control the delay before processing buffered vterm output
+  - Default value changed from 0.001 to 0.01 seconds (10ms) to better reduce flickering
+  - Allows fine-tuning the balance between flickering reduction and responsiveness
+
 ## [0.4.2]
 
 ### Changed

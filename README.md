@@ -523,9 +523,15 @@ When using the vterm terminal backend, there are additional customization option
 ```elisp
 ;; Enable/disable buffering to prevent flickering on multi-line input (default is t)
 ;; When enabled, vterm output that appears to be redrawing multi-line input boxes
-;; will be buffered briefly (1ms) and processed in a single batch
+;; will be buffered briefly and processed in a single batch
 ;; This prevents flickering when Claude redraws its input box as it expands
 (setq claude-code-vterm-buffer-multiline-output t)
+
+;; Control the delay before processing buffered vterm output (default is 0.01)
+;; This is the time in seconds that vterm waits to collect output bursts
+;; A longer delay may reduce flickering more but could feel less responsive
+;; The default of 0.01 seconds (10ms) provides a good balance
+(setq claude-code-vterm-multiline-delay 0.01)
 ```
 
 #### Vterm Scrollback Configuration
