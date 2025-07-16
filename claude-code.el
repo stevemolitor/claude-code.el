@@ -604,22 +604,31 @@ _BACKEND is the terminal backend type (should be \\='eat)."
     (pcase claude-code-newline-keybinding-style
       ('newline-on-shift-return
        ;; S-return enters a line break, RET sends the command
-       (define-key map (kbd "<S-return>") "\e\C-m")
-       (define-key map (kbd "<return>") (kbd "RET")))
+       (define-key map (kbd "<S-return>") #'claude-code--eat-send-alt-return)
+       (define-key map (kbd "<return>") #'claude-code--eat-send-return))
       ('newline-on-alt-return
        ;; M-return enters a line break, RET sends the command
-       (define-key map (kbd "<M-return>") "\e\C-m")
-       (define-key map (kbd "<return>") (kbd "RET")))
+       (define-key map (kbd "<M-return>") #'claude-code--eat-send-alt-return)
+       (define-key map (kbd "<return>") #'claude-code--eat-send-return))
       ('shift-return-to-send
        ;; RET enters a line break, S-return sends the command
-       (define-key map (kbd "<return>") "\e\C-m")
-       (define-key map (kbd "<S-return>") (kbd "RET")))
+       (define-key map (kbd "<return>") #'claude-code--eat-send-alt-return)
+       (define-key map (kbd "<S-return>") #'claude-code--eat-send-return))
       ('super-return-to-send
        ;; RET enters a line break, s-return sends the command.
-       (define-key map (kbd "<return>") "\e\C-m")
-       (define-key map (kbd "<s-return>") (kbd "RET"))))
-
+       (define-key map (kbd "<return>") #'claude-code--eat-send-alt-return)
+       (define-key map (kbd "<s-return>") #'claude-code--eat-send-return)))
     (use-local-map map)))
+
+(defun claude-code--eat-send-alt-return ()
+  "Send <alt>-<return> to eat."
+  (interactive)
+  (eat-term-send-string eat-terminal "\e\C-m"))
+
+(defun claude-code--eat-send-return ()
+  "Send <return> to eat."
+  (interactive)
+  (eat-term-send-string eat-terminal (kbd "RET")))
 
 (cl-defgeneric claude-code--term-get-adjust-process-window-size-fn (backend)
   "Get the BACKEND specific function that adjusts window size.")
