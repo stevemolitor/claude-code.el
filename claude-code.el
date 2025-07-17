@@ -327,6 +327,10 @@ for each directory across multiple invocations.")
     (define-key map (kbd "M") 'claude-code-cycle-mode)
     (define-key map (kbd "w") 'claude-code-goto-recent-workspace)
     (define-key map (kbd "W") 'claude-code-goto-recent-workspace-and-clear)
+    (define-key map (kbd "]") 'claude-code-queue-next)
+    (define-key map (kbd "[") 'claude-code-queue-previous)
+    (define-key map (kbd "D") 'claude-code-queue-skip)
+    (define-key map (kbd "q") 'claude-code-queue-status)
     map)
   "Keymap for Claude commands.")
 
@@ -368,6 +372,12 @@ for each directory across multiple invocations.")
    ["Workspace Navigation"
     ("w" "Go to recent workspace" claude-code-goto-recent-workspace)
     ("W" "Go to workspace and clear" claude-code-goto-recent-workspace-and-clear)
+    ]
+   ["Queue Navigation"
+    ("]" "Next in queue" claude-code-queue-next)
+    ("[" "Previous in queue" claude-code-queue-previous)
+    ("D" "Skip current entry" claude-code-queue-skip)
+    ("q" "Queue status" claude-code-queue-status)
     ]])
 
 ;;;###autoload (autoload 'claude-code-slash-commands "claude-code" nil t)

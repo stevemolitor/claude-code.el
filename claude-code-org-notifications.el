@@ -66,11 +66,7 @@ MESSAGE is the notification message to include in the TODO entry."
   (let* ((timestamp (claude-code--format-org-timestamp))
          (buffer-link (if buffer-name
                           (format "[[elisp:(switch-to-buffer \"%s\")][%s]]" buffer-name buffer-name)
-                        "Unknown buffer"))
-         (workspace-dir (claude-code--get-workspace-from-buffer-name buffer-name))
-         (workspace-link (if workspace-dir
-                             (format "[[elisp:(claude-code--switch-to-workspace-for-buffer \"%s\")][%s]]" buffer-name (file-name-nondirectory (directory-file-name workspace-dir)))
-                           "Unknown workspace")))
+                        "Unknown buffer")))
     (with-temp-buffer
       (when (file-exists-p claude-code-taskmaster-org-file)
         (insert-file-contents claude-code-taskmaster-org-file))
@@ -219,10 +215,15 @@ This is intended to be called from Claude Code hooks via emacsclient."
                      (eq (current-buffer) target-buffer)))
       ;; Create and display notification buffer
       (with-current-buffer (get-buffer-create notification-buffer)
-        (let ((inhibit-read-only t))
+        (let ((inhibit-read-only t)
+              (queue-total (length (claude-code--get-all-queue-entries))))
           (erase-buffer)
           (insert (format "Claude notification: %s\n" (or message "Task completed")))
-          (insert (format "Buffer: %s\n\n" (or buffer-name-override "unknown buffer")))
+          (insert (format "Buffer: %s\n" (or buffer-name-override "unknown buffer")))
+          ;; Add queue position information
+          (when (> queue-total 0)
+            (insert (format "Queue: %d entries\n" queue-total)))
+          (insert "\n")
           
           (if (and target-buffer (buffer-live-p target-buffer))
               (insert-button "Switch to Claude buffer"
@@ -259,6 +260,13 @@ This is intended to be called from Claude Code hooks via emacsclient."
                                     (find-file ,claude-code-taskmaster-org-file)
                                     (claude-code--dismiss-and-kill-buffer ,notification-buffer))
                          'help-echo "Click to view the org mode task queue")
+          (insert "   ")
+          (insert-button "Skip Entry"
+                         'action `(lambda (_button)
+                                    (claude-code--delete-queue-entry-for-buffer ,buffer-name-override)
+                                    (claude-code--dismiss-and-kill-buffer ,notification-buffer)
+                                    (message "Skipped queue entry for %s" ,buffer-name-override))
+                         'help-echo "Click to skip this queue entry")
           
           (goto-char (point-min))
           (setq buffer-read-only t))
@@ -362,6 +370,140 @@ This is intended to be called from Claude Code hooks via emacsclient."
         (claude-code--clear-most-recent-org-entry)
         (message "Switched to perspective and cleared org entry for buffer: %s" buffer-name))
     (message "No recent perspective found in taskmaster.org")))
+
+;;;; Queue Navigation System
+
+(defvar claude-code--queue-position 0
+  "Current position in the taskmaster.org queue.")
+
+(defun claude-code--get-all-queue-entries ()
+  "Get all TODO entries from taskmaster.org as a list of buffer names."
+  (when (file-exists-p claude-code-taskmaster-org-file)
+    (with-temp-buffer
+      (insert-file-contents claude-code-taskmaster-org-file)
+      (goto-char (point-min))
+      (let (entries)
+        (while (re-search-forward claude-code-org-todo-pattern nil t)
+          (when (re-search-forward "Buffer: \\[\\[elisp:(switch-to-buffer \"\\([^\"]+\\)\")\\]\\[" nil t)
+            (push (match-string 1) entries)))
+        (nreverse entries)))))
+
+(defun claude-code--get-queue-entry-at-position (position)
+  "Get the queue entry at POSITION, or nil if out of bounds."
+  (let ((entries (claude-code--get-all-queue-entries)))
+    (when (and entries (>= position 0) (< position (length entries)))
+      (nth position entries))))
+
+(defun claude-code--delete-queue-entry-for-buffer (buffer-name)
+  "Delete the queue entry corresponding to BUFFER-NAME from taskmaster.org."
+  (when (file-exists-p claude-code-taskmaster-org-file)
+    (with-temp-buffer
+      (insert-file-contents claude-code-taskmaster-org-file)
+      (goto-char (point-min))
+      (let (found)
+        (while (and (not found) (re-search-forward claude-code-org-todo-pattern nil t))
+          (let ((entry-start (match-beginning 0)))
+            (when (re-search-forward (format "Buffer: \\[\\[elisp:(switch-to-buffer \"%s\")" (regexp-quote buffer-name)) nil t)
+              (goto-char entry-start)
+              (if (outline-next-heading)
+                  (delete-region entry-start (point))
+                (delete-region entry-start (point-max)))
+              (setq found t))))
+        (when found
+          (write-region (point-min) (point-max) claude-code-taskmaster-org-file)
+          t)))))
+
+;;;###autoload
+(defun claude-code-queue-next ()
+  "Navigate to the next entry in the taskmaster.org queue."
+  (interactive)
+  (let* ((entries (claude-code--get-all-queue-entries))
+         (total (length entries)))
+    (if (zerop total)
+        (message "No entries in queue")
+      (setq claude-code--queue-position (mod (1+ claude-code--queue-position) total))
+      (let ((buffer-name (nth claude-code--queue-position entries)))
+        (claude-code--switch-to-workspace-for-buffer buffer-name)
+        (message "Queue position %d/%d: %s" (1+ claude-code--queue-position) total buffer-name)))))
+
+;;;###autoload
+(defun claude-code-queue-previous ()
+  "Navigate to the previous entry in the taskmaster.org queue."
+  (interactive)
+  (let* ((entries (claude-code--get-all-queue-entries))
+         (total (length entries)))
+    (if (zerop total)
+        (message "No entries in queue")
+      (setq claude-code--queue-position (mod (1- claude-code--queue-position) total))
+      (let ((buffer-name (nth claude-code--queue-position entries)))
+        (claude-code--switch-to-workspace-for-buffer buffer-name)
+        (message "Queue position %d/%d: %s" (1+ claude-code--queue-position) total buffer-name)))))
+
+;;;###autoload
+(defun claude-code-queue-skip ()
+  "Skip the current queue entry (delete it) and advance to the next."
+  (interactive)
+  (let* ((entries (claude-code--get-all-queue-entries))
+         (total (length entries)))
+    (if (zerop total)
+        (message "No entries in queue")
+      (let ((current-buffer (nth claude-code--queue-position entries)))
+        (if (claude-code--delete-queue-entry-for-buffer current-buffer)
+            (progn
+              (message "Skipped entry for %s" current-buffer)
+              ;; Adjust position if we're at the end
+              (let ((new-total (length (claude-code--get-all-queue-entries))))
+                (when (>= claude-code--queue-position new-total)
+                  (setq claude-code--queue-position (max 0 (1- new-total))))
+                (if (zerop new-total)
+                    (message "Queue is now empty")
+                  (claude-code-queue-next))))
+          (message "Failed to skip entry for %s" current-buffer))))))
+
+;;;###autoload
+(defun claude-code-queue-status ()
+  "Show the current queue status."
+  (interactive)
+  (let* ((entries (claude-code--get-all-queue-entries))
+         (total (length entries)))
+    (if (zerop total)
+        (message "Queue is empty")
+      (message "Queue: %d/%d entries, current: %s" 
+               (1+ claude-code--queue-position) total 
+               (nth claude-code--queue-position entries)))))
+
+;;;; Automatic Entry Clearing on RET
+
+(defun claude-code--auto-clear-on-ret ()
+  "Hook function to automatically clear taskmaster.org entry when user sends input.
+This function is added to the RET key in Claude buffers to provide seamless queue progression."
+  (let ((buffer-name (buffer-name)))
+    (when (string-match-p "^\\*claude:" buffer-name)
+      (when (claude-code--delete-queue-entry-for-buffer buffer-name)
+        (message "Auto-cleared queue entry for %s" buffer-name)))))
+
+(defun claude-code--setup-auto-clear-hook ()
+  "Set up automatic entry clearing for Claude buffers.
+This function is added to `claude-code-start-hook' to enable automatic
+queue progression when users respond to Claude."
+  (when (string-match-p "^\\*claude:" (buffer-name))
+    ;; Use pre-command-hook to detect when user is about to send input
+    ;; This works better with terminal emulators than trying to override RET
+    (add-hook 'pre-command-hook #'claude-code--check-for-input nil t)))
+
+(defun claude-code--check-for-input ()
+  "Check if user is sending input and auto-clear queue entry.
+This runs on pre-command-hook in Claude buffers."
+  (when (and (string-match-p "^\\*claude:" (buffer-name))
+             ;; Check if this is likely an input command (RET, sending text, etc.)
+             (or (eq this-command 'self-insert-command)
+                 (eq this-command 'newline)
+                 (eq this-command 'electric-newline-and-maybe-indent)
+                 (string-match-p "return\\|newline\\|send" (symbol-name (or this-command 'unknown)))))
+    (claude-code--auto-clear-on-ret)))
+
+;; Add the hook to set up auto-clearing in Claude buffers
+(add-hook 'claude-code-start-hook #'claude-code--setup-auto-clear-hook)
 
 ;;;; Integration
 
