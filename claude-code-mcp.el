@@ -65,7 +65,7 @@ in Emacs to connect to an claude process running outside Emacs." )
              finally (error "No free ports available"))))
 
 (defun claude-code-mcp--create-lockfile (folder port)
-  "Create lock file for SESSION."
+  "Create lock file for claude running in FOLDER for SESSION."
   (let* ((port port)
          (dir (expand-file-name "~/.claude/ide/"))
          (file (expand-file-name (format "%d.lock" port) dir))
@@ -270,4 +270,4 @@ Returns the session object."
     (websocket-server-close server)))
 
 (provide 'claude-code-mcp)
-;;; claude-code-mcp.el<claude-code-ide> ends here
+;;; claude-code-mcp.el ends here
