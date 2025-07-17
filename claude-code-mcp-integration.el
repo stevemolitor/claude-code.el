@@ -45,7 +45,7 @@ integration is enabled."
     (let* ((instance-name (claude-code--extract-instance-name-from-buffer-name
                            (buffer-name)))
            (project-dir (claude-code--directory))
-           (session (claude-code--mcp-start project-dir 
+           (session (claude-code--mcp-start project-dir
                                             (or instance-name "default")
                                             (current-buffer))))
       (when session
