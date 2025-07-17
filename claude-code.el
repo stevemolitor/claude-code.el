@@ -289,7 +289,9 @@ This only affects the vterm backend."
   :type 'boolean
   :group 'claude-code-vterm)
 
-(defcustom claude-code-vterm-multiline-delay 0.01
+(defcustom gs
+  git status
+  claude-code-vterm-multiline-delay 0.01
   "Delay in seconds before processing buffered vterm output.
 
 This controls how long vterm waits to collect output before processing
