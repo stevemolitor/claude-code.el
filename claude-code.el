@@ -1086,10 +1086,7 @@ the remembered directory->buffer associations."
 (defun claude-code--get-buffer-file-name ()
   "Get the file name associated with the current buffer."
   (when buffer-file-name
-    (let ((file-name (file-truename buffer-file-name)))
-      (if (file-remote-p file-name)
-          (tramp-file-local-name file-name)
-        file-name))))
+    (file-local-name (file-truename buffer-file-name))))
 
 (defun claude-code--format-file-reference (&optional file-name line-start line-end)
   "Format a file reference in the @file:line style.
