@@ -16,6 +16,7 @@
 (require 'transient)
 (require 'project)
 (require 'cl-lib)
+(require 'claude-code-mcp)
 
 ;;;; Customization options
 (defgroup claude-code nil
@@ -289,9 +290,7 @@ This only affects the vterm backend."
   :type 'boolean
   :group 'claude-code-vterm)
 
-(defcustom gs
-  git status
-  claude-code-vterm-multiline-delay 0.01
+(defcustom claude-code-vterm-multiline-delay 0.01
   "Delay in seconds before processing buffered vterm output.
 
 This controls how long vterm waits to collect output before processing
@@ -681,7 +680,7 @@ _BACKEND is the terminal backend type (should be \\='eat)."
 (declare-function vterm-send-key "vterm" key &optional shift meta ctrl accept-proc-output)
 (declare-function vterm-send-string "vterm" (string &optional paste-p))
 
-;; Helper to ensure vterm is loaded
+;; Start Claude process in vterm
 (cl-defmethod claude-code--term-make ((_backend (eql vterm)) buffer-name program &optional switches)
   "Create a vterm terminal.
 
@@ -695,8 +694,17 @@ SWITCHES are optional command-line arguments for PROGRAM."
                         program))
          (process-environment (cons (format "CLAUDE_BUFFER_NAME=%s" buffer-name)
                                     process-environment))
-         (buffer (get-buffer-create buffer-name)))
-    (with-current-buffer buffer
+         (buffer (get-buffer-create buffer-name))
+         ;; Set environment variable to enable IDE intgration
+         (vterm-environment (if claude-code-ide-integration-p
+                                (cons "ENABLE_IDE_INTEGRATION=1" vterm-environment)
+                              vterm-environment))))
+  (with-current-buffer buffer
+      ;; Add hooks and start MCP websocket server if IDE integration is enabled
+      (when claude-code-ide-integration-p
+        (claude-code-mcp-start-websocket-server)
+        (claude-code-mcp-register-hooks))
+      
       ;; vterm needs to have an open window before starting the claude
       ;; process; otherwise Claude doesn't seem to know how wide its
       ;; terminal window is and it draws the input box too wide. But
@@ -712,11 +720,13 @@ SWITCHES are optional command-line arguments for PROGRAM."
       (delete-window (get-buffer-window buffer))
       buffer)))
 
+;; Helper to ensure vterm is loaded
 (defun claude-code--ensure-vterm ()
   "Ensure vterm package is loaded."
-  (unless (featurep 'vterm)
-    (unless (require 'vterm nil t)
-      (error "The vterm package is required for vterm terminal backend. Please install it"))))
+  (unless (and
+           (require 'vterm nil t)
+           (featurep 'vterm))
+    (error "The vterm package is required for vterm terminal backend. Please install it")))
 
 (cl-defmethod claude-code--term-send-string ((_backend (eql vterm)) string)
   "Send STRING to vterm terminal.
