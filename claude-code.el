@@ -16,6 +16,7 @@
 (require 'transient)
 (require 'project)
 (require 'cl-lib)
+(require 'claude-code-mcp)
 
 ;;;; Customization options
 (defgroup claude-code nil
@@ -276,12 +277,25 @@ outputs."
   "Whether to buffer vterm output to prevent flickering on multi-line input.
 
 When non-nil, vterm output that appears to be redrawing multi-line
-input boxes will be buffered briefly (1ms) and processed in a single
+input boxes will be buffered briefly and processed in a single
 batch. This prevents the flickering that can occur when Claude redraws
 its input box as it expands to multiple lines.
 
 This only affects the vterm backend."
   :type 'boolean
+  :group 'claude-code-vterm)
+
+(defcustom claude-code-vterm-multiline-delay 0.01
+  "Delay in seconds before processing buffered vterm output.
+
+This controls how long vterm waits to collect output before processing
+it when `claude-code-vterm-buffer-multiline-output' is enabled.
+The delay should be long enough to collect bursts of updates but short
+enough to not be noticeable to the user.
+
+The default value of 0.01 seconds (10ms) provides a good balance
+between reducing flickering and maintaining responsiveness."
+  :type 'number
   :group 'claude-code-vterm)
 
 ;;;; Forward declarations for flycheck
@@ -601,22 +615,31 @@ _BACKEND is the terminal backend type (should be \\='eat)."
     (pcase claude-code-newline-keybinding-style
       ('newline-on-shift-return
        ;; S-return enters a line break, RET sends the command
-       (define-key map (kbd "<S-return>") "\e\C-m")
-       (define-key map (kbd "<return>") (kbd "RET")))
+       (define-key map (kbd "<S-return>") #'claude-code--eat-send-alt-return)
+       (define-key map (kbd "<return>") #'claude-code--eat-send-return))
       ('newline-on-alt-return
        ;; M-return enters a line break, RET sends the command
-       (define-key map (kbd "<M-return>") "\e\C-m")
-       (define-key map (kbd "<return>") (kbd "RET")))
+       (define-key map (kbd "<M-return>") #'claude-code--eat-send-alt-return)
+       (define-key map (kbd "<return>") #'claude-code--eat-send-return))
       ('shift-return-to-send
        ;; RET enters a line break, S-return sends the command
-       (define-key map (kbd "<return>") "\e\C-m")
-       (define-key map (kbd "<S-return>") (kbd "RET")))
+       (define-key map (kbd "<return>") #'claude-code--eat-send-alt-return)
+       (define-key map (kbd "<S-return>") #'claude-code--eat-send-return))
       ('super-return-to-send
        ;; RET enters a line break, s-return sends the command.
-       (define-key map (kbd "<return>") "\e\C-m")
-       (define-key map (kbd "<s-return>") (kbd "RET"))))
-
+       (define-key map (kbd "<return>") #'claude-code--eat-send-alt-return)
+       (define-key map (kbd "<s-return>") #'claude-code--eat-send-return)))
     (use-local-map map)))
+
+(defun claude-code--eat-send-alt-return ()
+  "Send <alt>-<return> to eat."
+  (interactive)
+  (eat-term-send-string eat-terminal "\e\C-m"))
+
+(defun claude-code--eat-send-return ()
+  "Send <return> to eat."
+  (interactive)
+  (eat-term-send-string eat-terminal (kbd "RET")))
 
 (cl-defgeneric claude-code--term-get-adjust-process-window-size-fn (backend)
   "Get the BACKEND specific function that adjusts window size.")
@@ -640,7 +663,7 @@ _BACKEND is the terminal backend type (should be \\='eat)."
 (declare-function vterm-send-key "vterm" key &optional shift meta ctrl accept-proc-output)
 (declare-function vterm-send-string "vterm" (string &optional paste-p))
 
-;; Helper to ensure vterm is loaded
+;; Start Claude process in vterm
 (cl-defmethod claude-code--term-make ((_backend (eql vterm)) buffer-name program &optional switches)
   "Create a vterm terminal.
 
@@ -652,8 +675,17 @@ SWITCHES are optional command-line arguments for PROGRAM."
   (let* ((vterm-shell (if switches
                           (concat program " " (mapconcat #'identity switches " "))
                         program))
-         (buffer (get-buffer-create buffer-name)))
+         (buffer (get-buffer-create buffer-name))
+         ;; Set environment variable to enable IDE intgration
+         (vterm-environment (if claude-code-ide-integration-p
+                                (cons "ENABLE_IDE_INTEGRATION=1" vterm-environment)
+                              vterm-environment)))
     (with-current-buffer buffer
+      ;; Add hooks and start MCP websocket server if IDE integration is enabled
+      (when claude-code-ide-integration-p
+        (claude-code-mcp-start-websocket-server)
+        (claude-code-mcp-register-hooks))
+      
       ;; vterm needs to have an open window before starting the claude
       ;; process; otherwise Claude doesn't seem to know how wide its
       ;; terminal window is and it draws the input box too wide. But
@@ -669,11 +701,13 @@ SWITCHES are optional command-line arguments for PROGRAM."
       (delete-window (get-buffer-window buffer))
       buffer)))
 
+;; Helper to ensure vterm is loaded
 (defun claude-code--ensure-vterm ()
   "Ensure vterm package is loaded."
-  (unless (featurep 'vterm)
-    (unless (require 'vterm nil t)
-      (error "The vterm package is required for vterm terminal backend. Please install it"))))
+  (unless (and
+           (require 'vterm nil t)
+           (featurep 'vterm))
+    (error "The vterm package is required for vterm terminal backend. Please install it")))
 
 (cl-defmethod claude-code--term-send-string ((_backend (eql vterm)) string)
   "Send STRING to vterm terminal.
@@ -1402,10 +1436,10 @@ INPUT is the terminal output string."
               ;; Cancel existing timer
               (when claude-code--vterm-multiline-buffer-timer
                 (cancel-timer claude-code--vterm-multiline-buffer-timer))
-              ;; Set timer with very short delay (1ms)
+              ;; Set timer with configurable delay
               ;; This is enough to collect a burst of updates but not noticeable to user
               (setq claude-code--vterm-multiline-buffer-timer
-                    (run-at-time 0.001 nil
+                    (run-at-time claude-code-vterm-multiline-delay nil
                                  (lambda (buf)
                                    (when (buffer-live-p buf)
                                      (with-current-buffer buf
