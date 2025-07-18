@@ -1,11 +1,13 @@
-;;; claude-code-mcp.el<claude-code-ide>  --- Claude MCP over websockets implementation  -*- lexical-binding:t -*-
+;;; claude-code-mcp.el  --- Claude MCP over websockets implementation  -*- lexical-binding:t -*-
 
 ;;; Commentary:
 ;; Integrate claude-code.el with claude processes using websockets + MCP.
 
 
 ;;; Code:
+;;; Require dependencies
 (require 'websocket)
+(require 'timeout)
 
 ;;; Session structure
 (cl-defstruct claude-code-mcp--session
@@ -19,6 +21,7 @@
 (defconst claude-code-mcp--port-min 10000 "Minimum port number for WebSocket server.")
 (defconst claude-code-mcp--port-max 65535 "Maximum port number for WebSocket server.")
 (defconst claude-code-mcp--protocol-version "2024-11-05" "MCP protocol version supported.")
+(defconst claude-code-mcp--selection-delay 0.05 "Delay in seconds before sending selection update.")
 
 ;;; Internal state variables
 (defvar claude-code-mcp--sessions (make-hash-table :test 'equal)
@@ -165,7 +168,7 @@ Remove SESSION from `claude-code-mcp--sessions'."
        (claude-code-mcp--handle-tools-list session ws id params))
       ;; Tool invocation
       ("tools/call"
-       (claude-code-mcp--handle-tools-call session id params))
+       (claude-code-mcp--handle-tools-call session ws id params))
       ;; Prompts listing (empty for now)
       ("prompts/list"
        (claude-code-mcp--send-response ws id '((prompts . []))))
@@ -178,51 +181,48 @@ Remove SESSION from `claude-code-mcp--sessions'."
   "Start websocker server for claude process KEY running in DIR.
 
 Returns the session object."
-  (if (gethash key claude-code-mcp--sessions)
-      (error "Websocket server already started for key %s" key)
-    (let* ((port (claude-code-mcp--find-free-port))
-           (session (make-claude-code-mcp--session :key key :port port)))
-      (condition-case err
-          (let ((server (websocket-server
-                         port
-                         :host 'local
-                         :on-open (lambda (ws)
-                                    (claude-code-mcp--on-open-server session ws))
-                         :on-close (lambda (ws)
-                                     (claude-code-mcp--on-close-server session ws))
-                         :on-message (lambda (ws frame)
-                                       (message "HEY on message!")
-                                       (claude-code-mcp--on-message session ws frame))
+    ;; (if (gethash key claude-code-mcp--sessions)
+    ;;   (error "Websocket server already started for key %s" key)
+  (let* ((port (claude-code-mcp--find-free-port))
+         (session (make-claude-code-mcp--session :key key :port port)))
+    (condition-case err
+        (let ((server (websocket-server
+                       port
+                       :host 'local
+                       :on-open (lambda (ws)
+                                  (claude-code-mcp--on-open-server session ws))
+                       :on-close (lambda (ws)
+                                   (claude-code-mcp--on-close-server session ws))
+                       :on-message (lambda (ws frame)
+                                     (message "HEY on message!")
+                                     (claude-code-mcp--on-message session ws frame))
 
-                         ;; [TODO] :on-error
-                         :protocol '("mcp"))))
-            ;; Put server in the session
-            (setf (claude-code-mcp--session-server session) server)
+                       ;; [TODO] :on-error
+                       :protocol '("mcp"))))
+          ;; Put server in the session
+          (setf (claude-code-mcp--session-server session) server)
 
-            ;; Create lock file
-            (claude-code-mcp--create-lockfile dir port)
+          ;; Create lock file
+          (claude-code-mcp--create-lockfile dir port)
 
-            ;; Store session
-            (puthash key session claude-code-mcp--sessions)
+          ;; Store session
+          (puthash key session claude-code-mcp--sessions)
 
-            ;; Create lockfile
-            (claude-code-mcp--create-lockfile dir port)
+          ;; Create lockfile
+          (claude-code-mcp--create-lockfile dir port)
 
-            ;; Print message and return session
-            ;; Return session
-            (message "server started on %d" port)
-            session)
-        (error
-         (message "Failed to start MCP server: %s" (error-message-string err))
-         nil)))))
+          ;; Print message and return session
+          ;; Return session
+          (message "server started on %d" port)
+          session)
+      (error
+       (message "Failed to start MCP server: %s" (error-message-string err))
+       nil))))
 
 ;;; Selection
-(defun claude-code-mcp-send-current-selection ()
-  (interactive)
-  "Send current selection/cursor position."
-  (let* ((session (gethash buffer-file-name claude-code-mcp--sessions))
-         (client (claude-code-mcp--session-client session))
-         (file-path (buffer-file-name))
+;;;; Selection functions
+(defun claude-code-mcp--get-selection ()
+  (let* ((file-path (buffer-file-name))
          (point-pos (point))
          (has-region (use-region-p))
          (region-start (if has-region (region-beginning) point-pos))
@@ -231,41 +231,61 @@ Returns the session object."
                    (buffer-substring-no-properties region-start region-end)
                  ""))
          ;; Convert to line/column positions
-         (start-line (line-number-at-pos region-start))
+         (start-line (1- (line-number-at-pos region-start)))
          (start-col (save-excursion
                       (goto-char region-start)
                       (current-column)))
-         (end-line (line-number-at-pos region-end))
+         (end-line (1- (line-number-at-pos region-end)))
          (end-col (save-excursion
                     (goto-char region-end)
                     (current-column)))
-         ;; Create position markers for duplicate detection
-         (current-position (if has-region
-                               (list region-start region-end)
-                             point-pos))
-         (current-region (if has-region
-                             (list start-line start-col end-line end-col)
-                           nil)))
-    (claude-code-mcp--send-notification
-     client
-     "selection_changed"
-     `((text . ,text)
-       (filePath . ,file-path)
-       (fileUrl . ,(concat "file://" file-path))
-       (selection . ((start . ((line . ,(1- start-line)) ; 0-indexed
-                               (character . ,start-col)))
-                     (end . ((line . ,(1- end-line)) ; 0-indexed
-                             (character . ,end-col)))
-                     (isEmpty . ,(not has-region))))))))
+         (selection `((start . ((line . ,start-line)
+                                (character . ,start-col)))
+                      (end . ((line . ,end-line)
+                              (character . ,end-col)))
+                      (isEmpty . ,(not has-region))))
+         (file-url (concat "file://" file-path)))
+    `((text . ,text)
+      (filePath . ,file-path)
+      (fileUrl . ,file-url)
+      (selection . ,selection))))
+
+(defun claude-code-mcp--send-selection ()
+  (maphash (lambda (_key session)
+             (let ((client (claude-code-mcp--session-client session))
+                   (selection (claude-code-mcp--get-selection)))
+               (claude-code-mcp--send-notification client "selection_changed" selection)))
+           claude-code-mcp--sessions))
+
+(timeout-debounce! #'claude-code-mcp--send-selection claude-code-mcp--selection-delay)
+
+;;;; Selection global hooks
+(defun claude-code-mcp--track-selection-change ()
+  (when buffer-file-name
+    (claude-code-mcp--send-selection)))
+
+;; (add-hook 'post-command-hook #'claude-code-mcp--track-selection-change)
+;; (remove-hook 'post-command-hook #'claude-code-mcp--selection-change)
+
+;; (add-hook 'window-selection-change-functions #'claude-code-mcp--window-change)
+
+
+;;; Hooks
+(defun claude-code-mcp-register-hooks ()
+  (add-hook 'post-command-hook #'claude-code-mcp--track-selection-change)
+  ;; (add-hook 'window-selection-change-functions #'claude-code-mcp--window-change)
+  )
 
 ;;; Interactive functions for testing
+
+
 (defun claude-code-mcp-start-websocket-server ()
   (interactive)
-  (claude-code-mcp--start-server buffer-file-name (file-name-directory buffer-file-name)))
+  (claude-code-mcp--start-server (buffer-name) (expand-file-name default-directory))) ;; [TODO] we may need to pass the directory
 
 (defun claude-code-mcp-stop-websocket-server ()
   (interactive)
-  (when-let* ((session (gethash buffer-file-name claude-code-mcp--sessions))
+  (when-let* ((session (gethash (buffer-name) claude-code-mcp--sessions))
               (server (claude-code-mcp--session-server session)))
     (websocket-server-close server)))
 
