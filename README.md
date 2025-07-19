@@ -305,16 +305,16 @@ For Windows, you can use PowerShell to create toast notifications:
 ## Customization {#customization}
 
 ```elisp
-;; Set your key binding for the command map
+;; Set your key binding for the command map.
 (global-set-key (kbd "C-c C-a") claude-code-command-map)
 
-;; Set terminal type for the Claude terminal emulation (default is "xterm-256color")
-;; This determines terminal capabilities like color support
-;; See the documentation for eat-term-name for more information
+;; Set terminal type for the Claude terminal emulation (default is "xterm-256color").
+;; This determines terminal capabilities like color support.
+;; See the documentation for eat-term-name for more information.
 (setq claude-code-term-name "xterm-256color")
 
-;; Change the path to the Claude executable (default is "claude")
-;; Useful if Claude is not in your PATH or you want to use a specific version
+;; Change the path to the Claude executable (default is "claude").
+;; Useful if Claude is not in your PATH or you want to use a specific version.
 (setq claude-code-program "/usr/local/bin/claude")
 
 ;; Set command line arguments for Claude
@@ -325,15 +325,15 @@ For Windows, you can use PowerShell to create toast notifications:
 (add-hook 'claude-code-start-hook 'my-claude-setup-function)
 
 ;; Adjust initialization delay (default is 0.1 seconds)
-;; This helps prevent terminal layout issues if the buffer is displayed before Claude is fully ready
+;; This helps prevent terminal layout issues if the buffer is displayed before Claude is fully ready.
 (setq claude-code-startup-delay 0.2)
 
 ;; Configure the buffer size threshold for confirmation prompt (default is 100000 characters)
 ;; If a buffer is larger than this threshold, claude-code-send-region will ask for confirmation
-;; before sending the entire buffer to Claude
+;; before sending the entire buffer to Claude.
 (setq claude-code-large-buffer-threshold 100000)
 
-;; Configure key binding style for entering newlines and sending messages in Claude buffers
+;; Configure key binding style for entering newlines and sending messages in Claude buffers.
 ;; Available styles:
 ;;   'newline-on-shift-return - S-return inserts newline, RET sends message (default)
 ;;   'newline-on-alt-return   - M-return inserts newline, RET sends message
@@ -341,12 +341,12 @@ For Windows, you can use PowerShell to create toast notifications:
 ;;   'super-return-to-send    - RET inserts newline, s-return sends message (Command+Return on macOS)
 (setq claude-code-newline-keybinding-style 'newline-on-shift-return)
 
-;; Enable or disable notifications when Claude finishes and awaits input (default is t)
+;; Enable or disable notifications when Claude finishes and awaits input (default is t).
 (setq claude-code-enable-notifications t)
 
-;; Customize the notification function (default is claude-code--default-notification)
-;; The function should accept two arguments: title and message
-;; The default function displays a message and pulses the modeline for visual feedback
+;; Customize the notification function (default is claude-code--default-notification).
+;; The function should accept two arguments: title and message.
+;; The default function displays a message and pulses the modeline for visual feedback.
 (setq claude-code-notification-function 'claude-code--default-notification)
 
 ;; Example: Use your own notification function
@@ -356,9 +356,9 @@ For Windows, you can use PowerShell to create toast notifications:
   (message "[%s] %s" title message))
 (setq claude-code-notification-function 'my-claude-notification)
 
-;; Configure kill confirmation behavior (default is t)
-;; When t, claude-code-kill prompts for confirmation before killing instances
-;; When nil, kills Claude instances without confirmation
+;; Configure kill confirmation behavior (default is t).
+;; When t, claude-code-kill prompts for confirmation before killing instances.
+;; When nil, kills Claude instances without confirmation.
 (setq claude-code-confirm-kill t)
 
 ;; Enable/disable window resize optimization (default is t)
