@@ -79,7 +79,6 @@ in Emacs to connect to an claude process running outside Emacs." )
 (defvar claude-code-mcp--last-selection nil
   "Last selection state to avoid duplicate notifications.")
 
-
 ;;; Util functions
 (defun claude-code-mcp--generate-uuid ()
   "Generate a UUID v4 string."
@@ -99,6 +98,7 @@ in Emacs to connect to an claude process running outside Emacs." )
                         (random 16)))))
           (aset uuid i (aref "0123456789abcdef" char)))))
     uuid))
+
 (defun claude-code-mcp--shuffle-list (l)
   "Randomly shuffle list L."
   (let* ((v (apply #'vector l))
@@ -123,12 +123,9 @@ in Emacs to connect to an claude process running outside Emacs." )
 
 (defun claude-code-mcp--find-session-by-client (client)
   "Find the session that owns the CLIENT websocket."
-  (let ((found-session nil))
-    (maphash (lambda (_key session)
-               (when (eq (claude-code-mcp--session-client session) client)
-                 (setq found-session session)))
-             claude-code-mcp--sessions)
-    found-session))
+  (seq-find (lambda (session)
+              (eq (claude-code-mcp--session-client session) client))
+            (hash-table-values claude-code-mcp--sessions)))
 
 (defun claude-code-mcp--find-free-port ()
   "Find a free port in the allowed range."
@@ -149,7 +146,7 @@ in Emacs to connect to an claude process running outside Emacs." )
              (content (json-encode
                        `((pid . ,(emacs-pid))
                          (workspaceFolders . ,(vector folder))
-                         (ideName . "Emacs")
+                         (ideName . "Emacs") ;; [TODO] include directory or project in ide name
                          (transport . "ws")
                          (authToken . ,auth-token)))))
         ;; Ensure directory exists
@@ -253,7 +250,7 @@ in Emacs to connect to an claude process running outside Emacs." )
                             (port . ,(claude-code-mcp--session-port session)))
                           nil)
     
-    ;; Send tools/list_changed notification after a delay
+    ;; Send tools/list_changed notification after a delay [TODO] do we need the delay?
     (run-with-timer claude-code-mcp--initial-notification-delay nil
                     (lambda ()
                       (when-let ((s (gethash (claude-code-mcp--session-key session) claude-code-mcp--sessions)))
@@ -278,8 +275,6 @@ in Emacs to connect to an claude process running outside Emacs." )
 ;; header as required by the protocol. This means any client can connect to our
 ;; websocket server if they know the port. The auth token in the lockfile provides
 ;; some security through obscurity, but proper header validation would be better.
-;; Consider implementing a custom handshake or switching to a different websocket
-;; library if stricter security is needed.
 (defun claude-code-mcp--on-open-server (session ws)
   "Handle WebSocket WS open for SESSION.
 
@@ -484,17 +479,9 @@ Returns the session object."
                         selection)))
                    claude-code-mcp--sessions))))))
 
-;; (add-hook 'post-command-hook #'claude-code-mcp--track-selection-change)
-;; (remove-hook 'post-command-hook #'claude-code-mcp--selection-change)
-
-;; (add-hook 'window-selection-change-functions #'claude-code-mcp--window-change)
-
-
 ;;; Hooks
 (defun claude-code-mcp-register-hooks ()
-  (add-hook 'post-command-hook #'claude-code-mcp--track-selection-change)
-  ;; (add-hook 'window-selection-change-functions #'claude-code-mcp--window-change)
-  )
+  (add-hook 'post-command-hook #'claude-code-mcp--track-selection-change))
 
 ;;; Interactive functions for testing
 
