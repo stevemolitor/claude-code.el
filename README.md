@@ -302,7 +302,7 @@ For Windows, you can use PowerShell to create toast notifications:
   (setq auto-revert-use-notify nil)
   ``` 
 
-## Customization {#customization}
+## Customization
 
 ```elisp
 ;; Set your key binding for the command map
@@ -483,6 +483,7 @@ Or to apply it only to Claude buffers:
           (lambda ()
             ;; Reduce line spacing to fix vertical bar gaps
             (setq-local line-spacing 0.1))) 
+```
 
 ## Demo
 
