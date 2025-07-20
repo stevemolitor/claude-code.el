@@ -286,6 +286,11 @@ in Emacs to connect to an claude process running outside Emacs." )
 (defun claude-code-mcp--get-tools-list ()
   "Get the list of available MCP tools."
   (vector
+   ;; Real tools
+   `((name . "getCurrentSelection")
+     (description . "Get the current text selection or cursor position in the active editor")
+     (inputSchema . ((type . "object")
+                     (properties . ()))))
    ;; Stub tools to prevent crashes
    `((name . "openDiff")
      (description . "Open a diff view")
@@ -312,11 +317,27 @@ in Emacs to connect to an claude process running outside Emacs." )
 (defun claude-code-mcp--get-tool-handler (name)
   "Get the handler function for tool NAME."
   (pcase name
+    ("getCurrentSelection" #'claude-code-mcp--tool-get-current-selection)
     ("openDiff" #'claude-code-mcp--tool-open-diff)
     ("close_tab" #'claude-code-mcp--tool-close-tab)
     ("getDiagnostics" #'claude-code-mcp--tool-get-diagnostics)
     ("closeAllDiffTabs" #'claude-code-mcp--tool-close-all-diff-tabs)
     (_ nil)))
+
+;; Real tool implementations
+(defun claude-code-mcp--tool-get-current-selection (_params)
+  "Implementation of getCurrentSelection tool.
+_PARAMS is unused for this tool."
+  (let ((selection-data (claude-code-mcp--get-selection)))
+    (if selection-data
+        `((content . [((type . "text") 
+                       (text . ,(json-encode selection-data)))]))
+      `((content . [((type . "text") 
+                     (text . ,(json-encode '((text . "")
+                                             (filePath . "")
+                                             (selection . ((start . ((line . 0) (character . 0)))
+                                                           (end . ((line . 0) (character . 0)))
+                                                           (isEmpty . t)))))))])))))
 
 ;; Stub tool implementations
 (defun claude-code-mcp--tool-open-diff (params)
