@@ -558,6 +558,17 @@ This is intended to be called from Claude Code hooks via emacsclient."
           (claude-code--switch-to-workspace-for-buffer selected-buffer)
           (message "Switched to queue entry: %s" selected-buffer))))))
 
+;;;; Queue Cleanup on Buffer Kill
+
+(defun claude-code--cleanup-queue-entries ()
+  "Remove taskmaster.org entries when Claude buffer is killed.
+
+This function is added to `kill-buffer-hook' in Claude buffers to automatically
+clean up queue entries when the buffer is no longer available."
+  (let ((buffer-name (buffer-name)))
+    (when (and buffer-name (string-match-p "^\\*claude:" buffer-name))
+      (claude-code--delete-queue-entry-for-buffer buffer-name))))
+
 ;;;; Automatic Entry Clearing on RET
 
 (defun claude-code--auto-clear-on-ret ()
