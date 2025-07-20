@@ -494,7 +494,10 @@ PROGRAM is the program to run in the terminal.
 SWITCHES are optional command-line arguments for PROGRAM."
   (claude-code--ensure-eat)
 
-  (let* ((trimmed-buffer-name (string-trim-right (string-trim buffer-name "\\*") "\\*")))
+  (let* ((trimmed-buffer-name (string-trim-right (string-trim buffer-name "\\*") "\\*"))
+         ;; Set environment variable with buffer name value, similar to vterm
+         (process-environment (cons (format "CLAUDE_BUFFER_NAME=%s" buffer-name)
+                                    process-environment)))
     (apply #'eat-make trimmed-buffer-name program nil switches)))
 
 (cl-defmethod claude-code--term-send-string ((_backend (eql eat)) string)
