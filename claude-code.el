@@ -17,9 +17,6 @@
 (require 'project)
 (require 'cl-lib)
 
-;; Declare functions from claude-code-org-notifications.el
-(declare-function claude-code-goto-recent-workspace "claude-code-org-notifications")
-(declare-function claude-code-goto-recent-workspace-and-clear "claude-code-org-notifications")
 
 ;;;; Customization options
 (defgroup claude-code nil
@@ -334,6 +331,7 @@ for each directory across multiple invocations.")
     map)
   "Keymap for Claude commands.")
 
+
 ;;;; Transient Menus
 ;;;###autoload (autoload 'claude-code-transient "claude-code" nil t)
 (transient-define-prefix claude-code-transient ()
@@ -476,6 +474,9 @@ Returns the buffer containing the terminal.")
 (declare-function eat-term-redisplay "eat" (terminal))
 (declare-function eat-term-reset "eat" (terminal))
 (declare-function eat-term-send-string "eat" (terminal string))
+
+;; Provide claude-code early (following magit pattern)
+(provide 'claude-code)
 
 ;; Helper to ensure eat is loaded
 (defun claude-code--ensure-eat ()
@@ -1764,18 +1765,6 @@ enter Claude commands."
        (claude-code-read-only-mode)
      (claude-code-exit-read-only-mode))))
 
-;;;; Extensions
-
-;;;###autoload
-(defun claude-code-load-org-notifications ()
-  "Load the org mode notification queue extension for Claude Code.
-
-This provides persistent task tracking in ~/.claude/taskmaster.org with
-timestamps and clickable buffer links, plus smart popup notifications."
-  (interactive)
-  (require 'claude-code-org-notifications)
-  (message "Claude Code org notifications loaded. Use M-x claude-code-setup-hooks to configure."))
-
 ;;;; Mode definition
 
 (define-minor-mode claude-code-mode
@@ -1788,6 +1777,12 @@ and managing Claude sessions."
   :global t
   :group 'claude-code)
 
+;; Conditionally load extension modules (following magit pattern)
+(cl-eval-when (load eval)
+  (let ((notifications-file (expand-file-name "claude-code-org-notifications.el" 
+                                               (file-name-directory (or load-file-name buffer-file-name)))))
+    (when (file-exists-p notifications-file)
+      (load notifications-file nil t))))
 (provide 'claude-code)
 
 ;;; claude-code.el ends here

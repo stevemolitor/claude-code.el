@@ -15,6 +15,7 @@
 
 (require 'json)
 (require 'cl-lib)
+(require 'claude-code)
 
 ;; Declare functions from perspective.el
 (declare-function persp-names "persp-mode")
@@ -515,6 +516,8 @@ This runs on pre-command-hook in Claude buffers."
                (window-height . 0.3)
                (select . nil)
                (quit-window . kill)))
+
+;; Setup keybindings when this module loads
 
 (provide 'claude-code-org-notifications)
 
