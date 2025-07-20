@@ -477,6 +477,9 @@ Returns the session object."
           ;; Store session
           (puthash key session claude-code-mcp--sessions)
 
+          ;; Register hooks for selection tracking
+          (claude-code-mcp-register-hooks)
+
           ;; Return session
           (message "MCP server started on port %d" port)
           session)
@@ -655,6 +658,9 @@ Returns the session object."
     (websocket-server-close server)
     ;; Remove from sessions hash table
     (remhash key claude-code-mcp--sessions)
+    ;; Remove hooks if no more sessions
+    (when (= 0 (hash-table-count claude-code-mcp--sessions))
+      (remove-hook 'post-command-hook #'claude-code-mcp--track-selection-change))
     (message "Cleaned up MCP session for %s" key)))
 
 ;; Register cleanup on Emacs exit
