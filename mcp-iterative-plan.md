@@ -43,10 +43,14 @@ These prevent Claude from crashing when it tries to use them.
 
 ## Phase 2: Core Tools (Day 2)
 
-### Step 2.1: Implement openFile
-- Most commonly used tool
-- Open files and optionally select text
-- Test file opening workflow with Claude
+### Step 2.1: Implement openFile [COMPLETE]
+- ✅ Added openFile to tools list with proper schema
+- ✅ Added handler mapping in claude-code-mcp--get-tool-handler
+- ✅ Implemented claude-code-mcp--tool-open-file function
+- ✅ Handles both file:// URIs and regular paths
+- ✅ Opens files with find-file
+- ✅ Supports optional text selection with start/end positions
+- ✅ Converts 0-based line numbers to Emacs 1-based
 
 ### Step 2.2: Implement getOpenEditors & getWorkspaceFolders
 - Provide workspace context to Claude
