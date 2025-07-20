@@ -417,33 +417,120 @@ PARAMS contains uri."
 
 ;; Stub tool implementations
 (defun claude-code-mcp--tool-open-diff (params)
-  "Stub implementation of openDiff tool.
+  "Open a diff view by creating a temporary buffer and showing both files.
 PARAMS contains old_file_path, new_file_path, new_file_contents, tab_name."
-  ;; Log what Claude is trying to do
-  (claude-code-mcp--log 'in 'openDiff-params params nil)
-  ;; If old and new paths are the same, delegate to openFile
   (let ((old-path (alist-get 'old_file_path params))
-        (new-path (alist-get 'new_file_path params)))
-    (if (and old-path new-path (string= old-path new-path))
-        ;; Claude is trying to open the same file - delegate to openFile
-        (progn
-          (claude-code-mcp--log 'out 'openDiff-delegating
-                                `((reason . "Same file paths - delegating to openFile")
-                                  (file . ,old-path))
-                                nil)
-          (claude-code-mcp--tool-open-file `((uri . ,old-path))))
-      ;; Different files - just return stub response
-      (list (cons 'content
-                  (vector (list (cons 'type "text")
-                                (cons 'text "Diff view opened (stub)"))))))))
+        (new-path (alist-get 'new_file_path params))
+        (new-contents (alist-get 'new_file_contents params))
+        (tab-name (alist-get 'tab_name params)))
+    ;; Log the request
+    (claude-code-mcp--log 'in 'openDiff-params params nil)
+    
+    ;; Ensure we have required parameters
+    (unless (and old-path new-contents)
+      (error "Missing required parameters: old_file_path and new_file_contents"))
+    
+    ;; Try to open the old file
+    (let ((old-buffer (condition-case nil
+                          (find-file-noselect old-path)
+                        (error 
+                         (message "Claude Code: Cannot open %s for diff, creating empty buffer" old-path)
+                         (get-buffer-create (format "*Missing: %s*" (file-name-nondirectory old-path)))))))
+      
+      ;; Create a temporary buffer with the new contents
+      ;; Use tab_name if provided, otherwise generate a name
+      (let* ((temp-buffer-name (or tab-name
+                                   (format "*Claude Diff: %s*" 
+                                          (file-name-nondirectory (or new-path old-path)))))
+             (temp-buffer (get-buffer-create temp-buffer-name)))
+        
+        ;; Set up the temporary buffer with new contents
+        (with-current-buffer temp-buffer
+          (erase-buffer)
+          (insert new-contents)
+          ;; Set the major mode based on the file extension
+          (let ((mode (assoc-default (or new-path old-path) auto-mode-alist 'string-match)))
+            (when mode (funcall mode)))
+          ;; Mark as not modified to prevent save prompts
+          (set-buffer-modified-p nil))
+        
+        ;; Display both buffers in a split window
+        (delete-other-windows)
+        (switch-to-buffer old-buffer)
+        (split-window-horizontally)
+        (other-window 1)
+        (switch-to-buffer temp-buffer)
+        (other-window 1)
+        
+        ;; Log success
+        (claude-code-mcp--log 'out 'openDiff-success
+                              `((old-path . ,old-path)
+                                (new-path . ,new-path)
+                                (tab-name . ,temp-buffer-name))
+                              nil)
+        
+        ;; Return success response
+        (list (cons 'content
+                    (vector (list (cons 'type "text")
+                                  (cons 'text "DIFF_VIEW_OPENED")))))))))
 
-(defun claude-code-mcp--tool-close-tab (_params)
-  "Stub implementation of close_tab tool.
-PARAMS contains tab_name."
-  ;; Just return success without actually closing anything
-  (list (cons 'content
-              (vector (list (cons 'type "text")
-                            (cons 'text "Tab closed (stub)"))))))
+(defun claude-code-mcp--tool-close-tab (params)
+  "Close a tab/buffer.
+PARAMS should contain `path' or `tab_name' of the file to close."
+  (let ((path (alist-get 'path params))
+        (tab-name (alist-get 'tab_name params)))
+    (cond
+     ;; Handle closing by file path
+     (path
+      (let ((buffer (find-buffer-visiting path)))
+        (if buffer
+            (progn
+              (kill-buffer buffer)
+              (claude-code-mcp--log 'out 'close-tab-success
+                                    `((path . ,path)
+                                      (result . "TAB_CLOSED"))
+                                    nil)
+              ;; Return success response
+              (list (cons 'content
+                          (vector (list (cons 'type "text")
+                                        (cons 'text "TAB_CLOSED"))))))
+          ;; Buffer not found - log and return success anyway
+          (progn
+            (message "Claude Code: No buffer visiting %s, ignoring close request" path)
+            (claude-code-mcp--log 'out 'close-tab-no-buffer
+                                  `((path . ,path)
+                                    (result . "Buffer not found, returning success"))
+                                  nil)
+            (list (cons 'content
+                        (vector (list (cons 'type "text")
+                                      (cons 'text "TAB_CLOSED")))))))))
+     ;; Handle closing by tab name (buffer name)
+     (tab-name
+      (let ((buffer (get-buffer tab-name)))
+        (if buffer
+            (progn
+              (kill-buffer buffer)
+              (claude-code-mcp--log 'out 'close-tab-success
+                                    `((tab-name . ,tab-name)
+                                      (result . "TAB_CLOSED"))
+                                    nil)
+              ;; Return success response
+              (list (cons 'content
+                          (vector (list (cons 'type "text")
+                                        (cons 'text "TAB_CLOSED"))))))
+          ;; Buffer not found - log and return success anyway
+          (progn
+            (message "Claude Code: No buffer named %s, ignoring close request" tab-name)
+            (claude-code-mcp--log 'out 'close-tab-no-buffer
+                                  `((tab-name . ,tab-name)
+                                    (result . "Buffer not found, returning success"))
+                                  nil)
+            (list (cons 'content
+                        (vector (list (cons 'type "text")
+                                      (cons 'text "TAB_CLOSED")))))))))
+     ;; Neither path nor tab_name provided - this is still an error
+     (t
+      (error "Either 'path' or 'tab_name' must be provided")))))
 
 (defun claude-code-mcp--tool-get-diagnostics (params)
   "Implementation of getDiagnostics tool.
@@ -519,12 +606,28 @@ PARAMS contains optional uri."
                               (cons 'text (json-encode (list (cons 'diagnostics (vconcat (nreverse diagnostics))))))))))))
 
 (defun claude-code-mcp--tool-close-all-diff-tabs (_params)
-  "Stub implementation of closeAllDiffTabs tool.
+  "Close all diff tabs created by Claude.
 PARAMS is empty."
-  ;; Just return success
-  (list (cons 'content
-              (vector (list (cons 'type "text")
-                            (cons 'text "All diff tabs closed (stub)"))))))
+  (let ((closed-count 0))
+    ;; Close all buffers that match our diff buffer naming pattern
+    (dolist (buffer (buffer-list))
+      (let ((buffer-name (buffer-name buffer)))
+        (when (string-match "^\\*Claude Diff: .*\\*$" buffer-name)
+          (claude-code-mcp--log 'out 'close-diff-tab
+                                `((buffer . ,buffer-name))
+                                nil)
+          (kill-buffer buffer)
+          (setq closed-count (1+ closed-count)))))
+    ;; Also close any "*Missing: filename*" buffers we created
+    (dolist (buffer (buffer-list))
+      (when (string-match "^\\*Missing: .*\\*$" (buffer-name buffer))
+        (kill-buffer buffer)
+        (setq closed-count (1+ closed-count))))
+    (message "Claude Code: Closed %d diff tabs" closed-count)
+    ;; Return success with actual count
+    (list (cons 'content
+                (vector (list (cons 'type "text")
+                              (cons 'text (format "CLOSED_%d_DIFF_TABS" closed-count))))))))
 
 ;; Real tool implementations for IDE features
 (defun claude-code-mcp--tool-get-open-editors (_params)
