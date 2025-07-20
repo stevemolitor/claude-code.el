@@ -455,12 +455,26 @@ PARAMS contains old_file_path, new_file_path, new_file_contents, tab_name."
           (set-buffer-modified-p nil))
         
         ;; Display both buffers in a split window
-        (delete-other-windows)
-        (switch-to-buffer old-buffer)
-        (split-window-horizontally)
-        (other-window 1)
-        (switch-to-buffer temp-buffer)
-        (other-window 1)
+        ;; Use condition-case to handle window configuration errors gracefully
+        (condition-case window-err
+            (progn
+              (delete-other-windows)
+              (switch-to-buffer old-buffer)
+              (split-window-horizontally)
+              (other-window 1)
+              (switch-to-buffer temp-buffer)
+              (other-window 1))
+          (error
+           ;; If window configuration fails (e.g., side window issue),
+           ;; just open the buffers without special window arrangement
+           (claude-code-mcp--log 'out 'openDiff-window-error
+                                 `((error . ,(error-message-string window-err))
+                                   (old-path . ,old-path)
+                                   (tab-name . ,temp-buffer-name))
+                                 nil)
+           (message "Claude Code: Window configuration error, opening diff in current layout")
+           ;; Ensure at least the diff buffer is visible
+           (switch-to-buffer temp-buffer)))
         
         ;; Log success
         (claude-code-mcp--log 'out 'openDiff-success
