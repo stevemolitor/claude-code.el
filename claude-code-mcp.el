@@ -380,7 +380,11 @@ STARTUP-HOOK-FN is the hook function to remove after use."
          (diff-info (gethash tab-name opened-diffs)))
     (when diff-info
       (let* ((buffer-B (alist-get 'buffer-B diff-info))
-             (accept-changes (y-or-n-p "Accept the changes? ")))
+             (accept-changes (y-or-n-p "Accept the changes? "))
+             ;; Get the final content before buffer is killed
+             (final-content (when (and accept-changes buffer-B (buffer-live-p buffer-B))
+                             (with-current-buffer buffer-B
+                               (buffer-string)))))
         
         ;; Restore window configuration
         (when saved-winconf
@@ -391,27 +395,24 @@ STARTUP-HOOK-FN is the hook function to remove after use."
         ;; Send deferred response
         (run-with-idle-timer 
          0.1 nil
-         (lambda ()
-           (if accept-changes
-               ;; User accepted changes
-               (let ((final-content (with-current-buffer buffer-B
-                                      (buffer-string))))
-                 ;; Send FILE_SAVED response with content
-                 (claude-code-mcp--complete-deferred-response
-                  tab-name
-                  (list (cons 'content
-                              (vector (list (cons 'type "text")
-                                            (cons 'text "FILE_SAVED"))
-                                      (list (cons 'type "text")
-                                            (cons 'text final-content)))))))
-             ;; User rejected changes
-             (claude-code-mcp--complete-deferred-response
-              tab-name
-              (list (cons 'content
-                          (vector (list (cons 'type "text")
-                                        (cons 'text "DIFF_REJECTED"))))))))
-         ;; Clean up the diff
-         (claude-code-mcp--cleanup-diff tab-name session))))))
+         `(lambda ()
+            (if ',accept-changes
+                ;; User accepted changes
+                (claude-code-mcp--complete-deferred-response
+                 ',tab-name
+                 (list (cons 'content
+                             (vector (list (cons 'type "text")
+                                           (cons 'text "FILE_SAVED"))
+                                     (list (cons 'type "text")
+                                           (cons 'text ',final-content))))))
+              ;; User rejected changes
+              (claude-code-mcp--complete-deferred-response
+               ',tab-name
+               (list (cons 'content
+                           (vector (list (cons 'type "text")
+                                         (cons 'text "DIFF_REJECTED")))))))
+            ;; Clean up the diff
+            (claude-code-mcp--cleanup-diff ',tab-name ',session)))))))
 
 (defun claude-code-mcp--cleanup-diff (tab-name session)
   "Clean up diff session for TAB-NAME in SESSION."
