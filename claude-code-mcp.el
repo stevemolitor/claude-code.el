@@ -347,14 +347,16 @@ in Emacs to connect to an claude process running outside Emacs." )
 _PARAMS is unused for this tool."
   (let ((selection-data (claude-code-mcp--get-selection)))
     (if selection-data
-        `((content . [((type . "text") 
-                       (text . ,(json-encode selection-data)))]))
-      `((content . [((type . "text") 
-                     (text . ,(json-encode '((text . "")
-                                             (filePath . "")
-                                             (selection . ((start . ((line . 0) (character . 0)))
-                                                           (end . ((line . 0) (character . 0)))
-                                                           (isEmpty . t)))))))])))))
+        (list (cons 'content
+                    (vector (list (cons 'type "text")
+                                  (cons 'text (json-encode selection-data))))))
+      (list (cons 'content
+                  (vector (list (cons 'type "text")
+                                (cons 'text (json-encode '((text . "")
+                                                           (filePath . "")
+                                                           (selection . ((start . ((line . 0) (character . 0)))
+                                                                         (end . ((line . 0) (character . 0)))
+                                                                         (isEmpty . t)))))))))))))
 
 (defun claude-code-mcp--tool-open-file (params)
   "Implementation of openFile tool.
@@ -372,44 +374,66 @@ PARAMS contains uri."
         (unless (file-exists-p file-path)
           (error "File not found: %s" file-path))
         
-        ;; Open the file
+        ;; Open the file and switch to its buffer
         (find-file file-path)
         
+        ;; Make sure the buffer is displayed in a window
+        (switch-to-buffer (current-buffer))
+        
         ;; Return success with file information
-        `((content . [((type . "text") 
-                       (text . ,(format "Opened file: %s" file-path)))])))
+        (list (cons 'content
+                    (vector (list (cons 'type "text")
+                                  (cons 'text (format "Opened file: %s" file-path)))))))
     (error
-     `((content . [((type . "text") 
-                    (text . ,(format "Error opening file: %s" (error-message-string err))))])))))
+     (list (cons 'content
+                 (vector (list (cons 'type "text")
+                               (cons 'text (format "Error opening file: %s" (error-message-string err))))))))))
 
 ;; Stub tool implementations
 (defun claude-code-mcp--tool-open-diff (params)
   "Stub implementation of openDiff tool.
 PARAMS contains old_file_path, new_file_path, new_file_contents, tab_name."
-  ;; Just return success without actually opening diff
-  `((content . [((type . "text") 
-                 (text . "Diff view opened (stub)"))])))
+  ;; Log what Claude is trying to do
+  (claude-code-mcp--log 'in 'openDiff-params params nil)
+  ;; If old and new paths are the same, delegate to openFile
+  (let ((old-path (alist-get 'old_file_path params))
+        (new-path (alist-get 'new_file_path params)))
+    (if (and old-path new-path (string= old-path new-path))
+        ;; Claude is trying to open the same file - delegate to openFile
+        (progn
+          (claude-code-mcp--log 'out 'openDiff-delegating
+                                `((reason . "Same file paths - delegating to openFile")
+                                  (file . ,old-path))
+                                nil)
+          (claude-code-mcp--tool-open-file `((uri . ,old-path))))
+      ;; Different files - just return stub response
+      (list (cons 'content
+                  (vector (list (cons 'type "text")
+                                (cons 'text "Diff view opened (stub)"))))))))
 
 (defun claude-code-mcp--tool-close-tab (params)
   "Stub implementation of close_tab tool.
 PARAMS contains tab_name."
   ;; Just return success without actually closing anything
-  `((content . [((type . "text") 
-                 (text . "Tab closed (stub)"))])))
+  (list (cons 'content
+              (vector (list (cons 'type "text")
+                            (cons 'text "Tab closed (stub)"))))))
 
 (defun claude-code-mcp--tool-get-diagnostics (params)
   "Stub implementation of getDiagnostics tool.
 PARAMS contains optional uri."
   ;; Return empty diagnostics array
-  `((content . [((type . "text") 
-                 (text . ,(json-encode '((diagnostics . [])))))])))
+  (list (cons 'content
+              (vector (list (cons 'type "text")
+                            (cons 'text (json-encode '((diagnostics . [])))))))))
 
 (defun claude-code-mcp--tool-close-all-diff-tabs (params)
   "Stub implementation of closeAllDiffTabs tool.
 PARAMS is empty."
   ;; Just return success
-  `((content . [((type . "text") 
-                 (text . "All diff tabs closed (stub)"))])))
+  (list (cons 'content
+              (vector (list (cons 'type "text")
+                            (cons 'text "All diff tabs closed (stub)"))))))
 
 ;;; Websocket server management functions
 ;; NOTE: Authentication validation limitation
