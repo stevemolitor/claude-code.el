@@ -23,10 +23,15 @@
 ;; Declare external functions from ediff
 (declare-function ediff-buffers "ediff" (buffer-A buffer-B &optional startup-hooks job-name))
 (declare-function ediff-really-quit "ediff-util" (reverse-default-keep-variants))
+(declare-function ediff-setup-windows-plain "ediff-wind" (buffer-A buffer-B buffer-C control-buffer))
+(declare-function ediff-jump-to-difference "ediff-util" (n &optional no-recenter))
 (defvar ediff-control-buffer)
 (defvar ediff-window-setup-function)
 (defvar ediff-split-window-function)
 (defvar ediff-quit-hook)
+(defvar ediff-window-A)
+(defvar ediff-window-B)
+(defvar ediff-number-of-differences)
 
 ;; Declare external functions from flymake
 (declare-function flymake-diagnostics "flymake" (&optional beg end))
@@ -139,7 +144,7 @@ in Emacs to connect to an claude process running outside Emacs." )
   "Randomly shuffle list L."
   (let* ((v (apply #'vector l))
          (n (length v)))
-    (dotimes (i (1- n) v)
+    (dotimes (i (1- n))
       (cl-rotatef (aref v i) (aref v (+ i (random (- n i))))))
     (append v nil)))
 
@@ -379,6 +384,52 @@ Returns a cons cell (buffer-A . buffer-B)."
         (when mode (funcall mode))))
 
     (cons buffer-A buffer-B)))
+
+(defun claude-code-mcp--find-claude-window ()
+  "Find the window displaying a Claude buffer.
+Returns the window if found, nil otherwise."
+  (catch 'found
+    (dolist (window (window-list))
+      (let ((buf-name (buffer-name (window-buffer window))))
+        (when (and buf-name
+                   (or (string-match-p "\\*claude" buf-name)
+                       (string-match-p "\\*Claude" buf-name)))
+          (throw 'found window))))
+    nil))
+
+(defun claude-code-mcp--setup-ediff-with-claude (buffer-A buffer-B &optional buffer-C control-buffer)
+  "Set up ediff windows while preserving Claude window.
+BUFFER-A and BUFFER-B are the buffers to compare.
+BUFFER-C and CONTROL-BUFFER are optional and unused."
+  (let ((claude-window (claude-code-mcp--find-claude-window)))
+    (if claude-window
+        ;; Claude is visible - arrange windows to preserve it
+        (let* ((claude-side (if (< (car (window-edges claude-window))
+                                   (/ (frame-width) 2))
+                                'left
+                              'right))
+               (available-window (if (eq claude-side 'left)
+                                     ;; Claude on left, use right side
+                                     (split-window (frame-root-window) nil 'right)
+                                   ;; Claude on right, use left side
+                                   (selected-window))))
+          ;; Delete other windows except Claude
+          (dolist (window (window-list))
+            (unless (or (eq window claude-window)
+                        (eq window available-window))
+              (ignore-errors (delete-window window))))
+          
+          ;; Set up ediff in the available space
+          (select-window available-window)
+          (switch-to-buffer buffer-A)
+          (let ((window-B (split-window nil nil 'below)))
+            (set-window-buffer window-B buffer-B)
+            ;; Let ediff know about our window setup
+            (setq ediff-window-A (selected-window)
+                  ediff-window-B window-B)))
+      
+      ;; No Claude window visible - use default setup
+      (ediff-setup-windows-plain buffer-A buffer-B nil nil))))
 
 (defun claude-code-mcp--handle-ediff-startup (tab-name session saved-winconf startup-hook-fn)
   "Handle ediff startup for TAB-NAME with SESSION and SAVED-WINCONF.
@@ -641,17 +692,14 @@ SESSION is the MCP session for this request."
             (condition-case err
                 (unwind-protect
                     (progn
-                      ;; Delete side windows to prevent errors
-                      (dolist (window (window-list))
-                        (when (window-parameter window 'window-side)
-                          (delete-window window)))
-
-                      ;; Configure ediff settings
-                      (setq ediff-window-setup-function 'ediff-setup-windows-plain
+                      ;; Use our custom window setup that preserves Claude
+                      (setq ediff-window-setup-function
+                            (lambda (buffer-A buffer-B buffer-C control-buffer)
+                              (claude-code-mcp--setup-ediff-with-claude 
+                               buffer-A buffer-B buffer-C control-buffer))
                             ediff-split-window-function 'split-window-horizontally)
 
-                      (let ((ediff-control-buffer-suffix (format "<%s>" tab-name)))
-                        (ediff-buffers buffer-A buffer-B)))
+                      (ediff-buffers buffer-A buffer-B nil (format "<%s>" tab-name)))
                   ;; Always restore settings
                   (setq ediff-window-setup-function saved-window-setup
                         ediff-split-window-function saved-split-function))
@@ -1218,6 +1266,79 @@ Returns the session object."
 
 ;; Register cleanup on Emacs exit
 (add-hook 'kill-emacs-hook #'claude-code-mcp--cleanup-on-exit)
+
+;;;; Testing Functions
+
+;; Test Functions for Window Preservation
+;;
+;; To test the window preservation functionality:
+;; 1. Start Claude in a window (e.g., using M-x claude-code)
+;; 2. Open test-example.el in another window
+;; 3. Run M-x claude-code-mcp--test-window-preservation
+;;
+;; The test will create a diff view while keeping Claude window visible.
+;; You should see:
+;; - Claude window remains visible on one side
+;; - Ediff windows appear on the opposite side
+;; - You can accept/reject changes and Claude stays visible
+
+(defun claude-code-mcp--test-window-preservation ()
+  "Test that Claude window is preserved during ediff.
+This function helps verify the window preservation functionality."
+  (interactive)
+  ;; Create a test scenario
+  (let ((test-file (expand-file-name "test-example.el")))
+    (unless (file-exists-p test-file)
+      (error "Test file test-example.el not found"))
+    
+    ;; First ensure we have a Claude window
+    (unless (claude-code-mcp--find-claude-window)
+      (error "No Claude window found. Please start Claude first"))
+    
+    ;; Create modified content for diff
+    (let* ((original-content (with-temp-buffer
+                               (insert-file-contents test-file)
+                               (buffer-string)))
+           (modified-content (with-temp-buffer
+                               (insert original-content)
+                               (goto-char (point-min))
+                               (search-forward "Calculate factorial of N.")
+                               (replace-match "Calculate the factorial of N recursively.")
+                               (search-forward "(message \"Hello, %s!\" name)")
+                               (replace-match "(message \"Greetings, %s!\" name)")
+                               (buffer-string)))
+           (session (make-claude-code-mcp--session
+                     :key "test-session"
+                     :port 0
+                     :server nil
+                     :client nil
+                     :initialized nil
+                     :auth-token "test-token"
+                     :opened-diffs (make-hash-table :test 'equal)
+                     :deferred-responses (make-hash-table :test 'equal))))
+      
+      ;; Store test session
+      (puthash "test-session" session claude-code-mcp--sessions)
+      
+      ;; Call openDiff with test parameters
+      (message "Testing window preservation with openDiff...")
+      (let ((result (claude-code-mcp--tool-open-diff
+                     `((session_id . "test-session")
+                       (request_id . "test-request")
+                       (original_path . ,test-file)
+                       (original_content . ,original-content)
+                       (modified_path . "Modified test-example.el")
+                       (modified_content . ,modified-content))
+                     session)))
+        
+        (if (and result (claude-code-mcp--find-claude-window))
+            (message "SUCCESS: Claude window preserved during diff!")
+          (message "FAILED: Claude window was not preserved"))
+        
+        ;; Cleanup test session
+        (remhash "test-session" claude-code-mcp--sessions)
+        
+        result))))
 
 (provide 'claude-code-mcp)
 ;;; claude-code-mcp.el ends here
