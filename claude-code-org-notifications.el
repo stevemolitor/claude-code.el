@@ -2,7 +2,7 @@
 
 ;; Author: Claude AI
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "30.0") (claude-code "0.2.0"))
+;; Package-Requires: ((emacs "30.0") (claude-code "0.2.0") (org "9.0"))
 ;; Keywords: tools, ai, org
 
 ;;; Commentary:
@@ -22,6 +22,13 @@
 (declare-function persp-get-by-name "persp-mode")
 (declare-function persp-switch "persp-mode")
 (declare-function persp-buffers "persp-mode")
+
+;; Declare functions from org-mode
+(declare-function org-back-to-heading "org")
+(declare-function org-next-visible-heading "org")
+
+;; Declare functions from evil (optional)
+(declare-function evil-insert-state "evil-states")
 
 ;; Constants
 (defconst claude-code-notification-buffer-name "*Claude Code Notification*"
@@ -101,7 +108,7 @@ MESSAGE is the notification message to include in the TODO entry."
                  return persp-name)))))
 
 (defun claude-code--switch-to-workspace-for-buffer (buffer-name)
-  "Switch to the perspective that contains the specified BUFFER-NAME and navigate to the buffer."
+  "Switch to the perspective that contains BUFFER-NAME and navigate to it."
   (if-let ((persp-name (claude-code--find-workspace-for-buffer buffer-name)))
       (progn
         (persp-switch persp-name)
@@ -140,7 +147,7 @@ MESSAGE is the notification message to include in the TODO entry."
       (when (looking-at claude-code-org-todo-pattern)
         ;; Delete the entire entry (from heading to next heading or end of buffer)
         (let ((start (point)))
-          (if (outline-next-heading)
+          (if (org-next-visible-heading 1)
               (delete-region start (point))
             (delete-region start (point-max))))
         (save-buffer)
@@ -435,7 +442,7 @@ This is intended to be called from Claude Code hooks via emacsclient."
           (let ((entry-start (match-beginning 0)))
             (when (re-search-forward (format "Buffer: \\[\\[elisp:(switch-to-buffer \"%s\")" (regexp-quote buffer-name)) nil t)
               (goto-char entry-start)
-              (if (outline-next-heading)
+              (if (org-next-visible-heading 1)
                   (delete-region entry-start (point))
                 (delete-region entry-start (point-max)))
               (setq found t))))
@@ -505,8 +512,10 @@ This is intended to be called from Claude Code hooks via emacsclient."
 ;;;; Automatic Entry Clearing on RET
 
 (defun claude-code--auto-clear-on-ret ()
-  "Hook function to automatically clear taskmaster.org entry when user sends input.
-This function is added to the RET key in Claude buffers to provide seamless queue progression."
+  "Auto-clear taskmaster.org entry when user sends input.
+
+This function is added to the RET key in Claude buffers to provide
+seamless queue progression."
   (let ((buffer-name (buffer-name)))
     (when (string-match-p "^\\*claude:" buffer-name)
       (when (claude-code--delete-queue-entry-for-buffer buffer-name)
