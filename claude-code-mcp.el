@@ -20,6 +20,14 @@
 ;; Try to load websocket if available
 (require 'websocket nil t)
 
+;; Declare external functions from ediff
+(declare-function ediff-buffers "ediff" (buffer-A buffer-B &optional startup-hooks job-name))
+(declare-function ediff-really-quit "ediff-util" (reverse-default-keep-variants))
+(defvar ediff-control-buffer)
+(defvar ediff-window-setup-function)
+(defvar ediff-split-window-function)
+(defvar ediff-quit-hook)
+
 ;; Declare external functions from flymake
 (declare-function flymake-diagnostics "flymake" (&optional beg end))
 (declare-function flymake-diagnostic-beg "flymake" (diag))
@@ -42,7 +50,9 @@
   client
   port
   initialized      ; Whether handshake is complete
-  auth-token)      ; UUID auth token for validation
+  auth-token       ; UUID auth token for validation
+  opened-diffs     ; Hash table of active diff sessions keyed by tab-name
+  deferred-responses) ; Hash table of deferred responses keyed by unique-key
 
 ;;; Constants
 (defconst claude-code-mcp--port-min 10000 "Minimum port number for WebSocket server.")
@@ -254,6 +264,32 @@ in Emacs to connect to an claude process running outside Emacs." )
                                      (method . ,method))
                                    nil))))))))
 
+;;; Deferred Response Support
+(defun claude-code-mcp--store-deferred-response (session unique-key id)
+  "Store a deferred response for UNIQUE-KEY with request ID in SESSION."
+  (when (and session unique-key id)
+    (let ((deferred-responses (claude-code-mcp--session-deferred-responses session)))
+      (puthash unique-key id deferred-responses))))
+
+(defun claude-code-mcp--complete-deferred-response (unique-key result)
+  "Complete a deferred response for UNIQUE-KEY with RESULT.
+Searches all sessions for the deferred response."
+  (catch 'completed
+    (maphash (lambda (_key session)
+               (let* ((deferred-responses (claude-code-mcp--session-deferred-responses session))
+                      (request-id (gethash unique-key deferred-responses)))
+                 (when request-id
+                   ;; Found the deferred response
+                   (let ((client (claude-code-mcp--session-client session)))
+                     (when client
+                       ;; Send the response
+                       (claude-code-mcp--send-response client request-id result)
+                       ;; Remove from deferred responses
+                       (remhash unique-key deferred-responses)
+                       (throw 'completed t))))))
+             claude-code-mcp--sessions)
+    nil))
+
 ;;; Handlers
 (defun claude-code-mcp--handle-initialize (session ws id _params)
   "Handle initialize request with ID and PARAMS from WS for SESSION."
@@ -291,15 +327,23 @@ in Emacs to connect to an claude process running outside Emacs." )
    ws id
    `((tools . ,(claude-code-mcp--get-tools-list)))))
 
-(defun claude-code-mcp--handle-tools-call (_session ws id params)
+(defun claude-code-mcp--handle-tools-call (session ws id params)
   "Handle tools/call request with ID and PARAMS from WS for SESSION."
   (let* ((tool-name (alist-get 'name params))
          (arguments (alist-get 'arguments params))
          (handler (claude-code-mcp--get-tool-handler tool-name)))
     (if handler
         (condition-case err
-            (let ((result (funcall handler arguments)))
-              (claude-code-mcp--send-response ws id result))
+            (let ((result (funcall handler arguments session)))
+              ;; Check if this is a deferred response
+              (if (and (listp result) (alist-get 'deferred result))
+                  (let ((unique-key (alist-get 'unique-key result)))
+                    ;; Store the deferred response
+                    (claude-code-mcp--store-deferred-response session unique-key id)
+                    ;; Don't send response yet - it will be sent later
+                    nil)
+                ;; Normal response - send immediately
+                (claude-code-mcp--send-response ws id result)))
           (error
            (claude-code-mcp--send-error
             ws id -32603
@@ -307,6 +351,89 @@ in Emacs to connect to an claude process running outside Emacs." )
       (claude-code-mcp--send-error
        ws id -32601
        (format "Tool not found: %s" tool-name)))))
+
+;;; Ediff Helper Functions
+(defun claude-code-mcp--handle-ediff-startup (tab-name session saved-winconf startup-hook-fn)
+  "Handle ediff startup for TAB-NAME with SESSION and SAVED-WINCONF.
+STARTUP-HOOK-FN is the hook function to remove after use."
+  ;; Capture the control buffer
+  (when ediff-control-buffer
+    (let ((opened-diffs (claude-code-mcp--session-opened-diffs session))
+          (control-buffer ediff-control-buffer))
+      (when-let ((diff-info (gethash tab-name opened-diffs)))
+        (setf (alist-get 'control-buffer diff-info) control-buffer)
+        (puthash tab-name diff-info opened-diffs)))
+    
+    (with-current-buffer ediff-control-buffer
+      ;; Set up quit hook
+      (setq-local ediff-quit-hook
+                  (list (lambda ()
+                          (claude-code-mcp--handle-ediff-quit
+                           tab-name session saved-winconf))))))
+  
+  ;; Remove this startup hook after use
+  (remove-hook 'ediff-startup-hook startup-hook-fn))
+
+(defun claude-code-mcp--handle-ediff-quit (tab-name session saved-winconf)
+  "Handle ediff quit for TAB-NAME with SESSION and SAVED-WINCONF."
+  (let* ((opened-diffs (claude-code-mcp--session-opened-diffs session))
+         (diff-info (gethash tab-name opened-diffs)))
+    (when diff-info
+      (let* ((buffer-B (alist-get 'buffer-B diff-info))
+             (accept-changes (y-or-n-p "Accept the changes? ")))
+        
+        ;; Restore window configuration
+        (when saved-winconf
+          (condition-case nil
+              (set-window-configuration saved-winconf)
+            (error nil)))
+        
+        ;; Send deferred response
+        (run-with-idle-timer 
+         0.1 nil
+         (lambda ()
+           (if accept-changes
+               ;; User accepted changes
+               (let ((final-content (with-current-buffer buffer-B
+                                      (buffer-string))))
+                 ;; Send FILE_SAVED response with content
+                 (claude-code-mcp--complete-deferred-response
+                  tab-name
+                  (list (cons 'content
+                              (vector (list (cons 'type "text")
+                                            (cons 'text "FILE_SAVED"))
+                                      (list (cons 'type "text")
+                                            (cons 'text final-content)))))))
+             ;; User rejected changes
+             (claude-code-mcp--complete-deferred-response
+              tab-name
+              (list (cons 'content
+                          (vector (list (cons 'type "text")
+                                        (cons 'text "DIFF_REJECTED"))))))))
+         ;; Clean up the diff
+         (claude-code-mcp--cleanup-diff tab-name session))))))
+
+(defun claude-code-mcp--cleanup-diff (tab-name session)
+  "Clean up diff session for TAB-NAME in SESSION."
+  (let ((opened-diffs (claude-code-mcp--session-opened-diffs session)))
+    (when-let ((diff-info (gethash tab-name opened-diffs)))
+      (let ((buffer-B (alist-get 'buffer-B diff-info))
+            (buffer-A (alist-get 'buffer-A diff-info))
+            (file-exists (alist-get 'file-exists diff-info))
+            (control-buf (alist-get 'control-buffer diff-info)))
+        ;; Kill control buffer if it exists
+        (when (and control-buf (buffer-live-p control-buf))
+          (with-current-buffer control-buf
+            (setq ediff-quit-hook nil))
+          (kill-buffer control-buf))
+        ;; Kill temporary buffer B
+        (when (and buffer-B (buffer-live-p buffer-B))
+          (kill-buffer buffer-B))
+        ;; Kill buffer A if it was created for a new file
+        (when (and buffer-A (not file-exists) (buffer-live-p buffer-A))
+          (kill-buffer buffer-A))
+        ;; Remove from opened diffs
+        (remhash tab-name opened-diffs)))))
 
 ;;; MCP Tools
 (defun claude-code-mcp--get-tools-list ()
@@ -368,9 +495,10 @@ in Emacs to connect to an claude process running outside Emacs." )
     (_ nil)))
 
 ;; Real tool implementations
-(defun claude-code-mcp--tool-get-current-selection (_params)
+(defun claude-code-mcp--tool-get-current-selection (_params _session)
   "Implementation of getCurrentSelection tool.
-_PARAMS is unused for this tool."
+_PARAMS is unused for this tool.
+_SESSION is the MCP session (unused for this tool)."
   (let ((selection-data (claude-code-mcp--get-selection)))
     (if selection-data
         (list (cons 'content
@@ -384,9 +512,10 @@ _PARAMS is unused for this tool."
                                                                          (end . ((line . 0) (character . 0)))
                                                                          (isEmpty . t)))))))))))))
 
-(defun claude-code-mcp--tool-open-file (params)
+(defun claude-code-mcp--tool-open-file (params _session)
   "Implementation of openFile tool.
-PARAMS contains uri."
+PARAMS contains uri.
+_SESSION is the MCP session (unused for this tool)."
   (condition-case err
       (let* ((uri (alist-get 'uri params))
              ;; Handle file:// URIs
@@ -415,10 +544,11 @@ PARAMS contains uri."
                  (vector (list (cons 'type "text")
                                (cons 'text (format "Error opening file: %s" (error-message-string err))))))))))
 
-;; Stub tool implementations
-(defun claude-code-mcp--tool-open-diff (params)
-  "Open a diff view by creating a temporary buffer and showing both files.
-PARAMS contains old_file_path, new_file_path, new_file_contents, tab_name."
+;; Ediff tool implementation
+(defun claude-code-mcp--tool-open-diff (params session)
+  "Open a diff view using ediff.
+PARAMS contains old_file_path, new_file_path, new_file_contents, tab_name.
+SESSION is the MCP session for this request."
   (let ((old-path (alist-get 'old_file_path params))
         (new-path (alist-get 'new_file_path params))
         (new-contents (alist-get 'new_file_contents params))
@@ -427,70 +557,95 @@ PARAMS contains old_file_path, new_file_path, new_file_contents, tab_name."
     (claude-code-mcp--log 'in 'openDiff-params params nil)
     
     ;; Ensure we have required parameters
-    (unless (and old-path new-contents)
-      (error "Missing required parameters: old_file_path and new_file_contents"))
+    (unless (and old-path new-contents tab-name)
+      (error "Missing required parameters: old_file_path, new_file_contents, and tab_name"))
     
-    ;; Try to open the old file
-    (let ((old-buffer (condition-case nil
-                          (find-file-noselect old-path)
-                        (error 
-                         (message "Claude Code: Cannot open %s for diff, creating empty buffer" old-path)
-                         (get-buffer-create (format "*Missing: %s*" (file-name-nondirectory old-path)))))))
+    ;; Session is now passed as parameter
+    (unless session
+      (error "No active MCP session found"))
+    
+    ;; Check if there's already a diff with this tab_name
+    (let ((opened-diffs (claude-code-mcp--session-opened-diffs session)))
+      (when (gethash tab-name opened-diffs)
+        ;; Clean up existing diff
+        (claude-code-mcp--cleanup-diff tab-name session)))
       
-      ;; Create a temporary buffer with the new contents
-      ;; Use tab_name if provided, otherwise generate a name
-      (let* ((temp-buffer-name (or tab-name
-                                   (format "*Claude Diff: %s*" 
-                                          (file-name-nondirectory (or new-path old-path)))))
-             (temp-buffer (get-buffer-create temp-buffer-name)))
+      ;; Save current window configuration
+      (let* ((saved-winconf (current-window-configuration))
+             (file-exists (file-exists-p old-path))
+             (buffer-A (if file-exists
+                           (find-file-noselect old-path)
+                         ;; New file - create empty buffer
+                         (let ((buf (generate-new-buffer 
+                                     (format "*New file: %s*" 
+                                             (file-name-nondirectory old-path)))))
+                           (with-current-buffer buf
+                             (setq buffer-file-name old-path))
+                           buf)))
+             (buffer-B (generate-new-buffer (format "*%s*" tab-name))))
         
-        ;; Set up the temporary buffer with new contents
-        (with-current-buffer temp-buffer
-          (erase-buffer)
+        ;; Set up buffer B with new contents
+        (with-current-buffer buffer-B
           (insert new-contents)
           ;; Set the major mode based on the file extension
-          (let ((mode (assoc-default (or new-path old-path) auto-mode-alist 'string-match)))
-            (when mode (funcall mode)))
-          ;; Mark as not modified to prevent save prompts
-          (set-buffer-modified-p nil))
+          (let ((mode (assoc-default old-path auto-mode-alist 'string-match)))
+            (when mode (funcall mode))))
         
-        ;; Display both buffers in a split window
-        ;; Use condition-case to handle window configuration errors gracefully
-        (condition-case window-err
-            (progn
-              (delete-other-windows)
-              (switch-to-buffer old-buffer)
-              (split-window-horizontally)
-              (other-window 1)
-              (switch-to-buffer temp-buffer)
-              (other-window 1))
-          (error
-           ;; If window configuration fails (e.g., side window issue),
-           ;; just open the buffers without special window arrangement
-           (claude-code-mcp--log 'out 'openDiff-window-error
-                                 `((error . ,(error-message-string window-err))
-                                   (old-path . ,old-path)
-                                   (tab-name . ,temp-buffer-name))
-                                 nil)
-           (message "Claude Code: Window configuration error, opening diff in current layout")
-           ;; Ensure at least the diff buffer is visible
-           (switch-to-buffer temp-buffer)))
+        ;; Store diff info
+        (let ((opened-diffs (claude-code-mcp--session-opened-diffs session)))
+          (puthash tab-name
+                   `((buffer-A . ,buffer-A)
+                     (buffer-B . ,buffer-B)
+                     (old-file-path . ,old-path)
+                     (new-file-path . ,new-path)
+                     (file-exists . ,file-exists)
+                     (saved-winconf . ,saved-winconf)
+                     (session . ,session)
+                     (created-at . ,(current-time)))
+                   opened-diffs))
         
-        ;; Log success
-        (claude-code-mcp--log 'out 'openDiff-success
-                              `((old-path . ,old-path)
-                                (new-path . ,new-path)
-                                (tab-name . ,temp-buffer-name))
-                              nil)
+        ;; Set up ediff hooks
+        (let ((startup-hook-fn nil))
+          
+          ;; Define startup hook
+          (setq startup-hook-fn
+                (lambda ()
+                  (claude-code-mcp--handle-ediff-startup 
+                   tab-name session saved-winconf startup-hook-fn)))
+          
+          ;; Add startup hook
+          (add-hook 'ediff-startup-hook startup-hook-fn)
+          
+          ;; Start ediff
+          (condition-case err
+              (progn
+                ;; Delete side windows to prevent errors
+                (dolist (window (window-list))
+                  (when (window-parameter window 'window-side)
+                    (delete-window window)))
+                
+                ;; Configure ediff settings
+                (let ((ediff-window-setup-function 'ediff-setup-windows-plain)
+                      (ediff-split-window-function 'split-window-horizontally))
+                  (ediff-buffers buffer-A buffer-B)))
+            (error
+             ;; Clean up on error
+             (when buffer-B (kill-buffer buffer-B))
+             (when (and buffer-A (not file-exists))
+               (kill-buffer buffer-A))
+             (let ((opened-diffs (claude-code-mcp--session-opened-diffs session)))
+               (remhash tab-name opened-diffs))
+             (remove-hook 'ediff-startup-hook startup-hook-fn)
+             (signal (car err) (cdr err)))))
         
-        ;; Return success response
-        (list (cons 'content
-                    (vector (list (cons 'type "text")
-                                  (cons 'text "DIFF_VIEW_OPENED")))))))))
+        ;; Return deferred response
+        `((deferred . t)
+          (unique-key . ,tab-name)))))
 
-(defun claude-code-mcp--tool-close-tab (params)
+(defun claude-code-mcp--tool-close-tab (params session)
   "Close a tab/buffer.
-PARAMS should contain `path' or `tab_name' of the file to close."
+PARAMS should contain `path' or `tab_name' of the file to close.
+SESSION is the MCP session for tracking opened diffs."
   (let ((path (alist-get 'path params))
         (tab-name (alist-get 'tab_name params)))
     (cond
@@ -518,13 +673,27 @@ PARAMS should contain `path' or `tab_name' of the file to close."
             (list (cons 'content
                         (vector (list (cons 'type "text")
                                       (cons 'text "TAB_CLOSED")))))))))
-     ;; Handle closing by tab name (buffer name)
+     ;; Handle closing by tab name (buffer name or diff tab)
      (tab-name
-      (let ((buffer (get-buffer tab-name)))
-        (if buffer
+      ;; First check if this is a diff tab
+      (let* ((opened-diffs (when session
+                            (claude-code-mcp--session-opened-diffs session)))
+             (diff-info (when opened-diffs
+                         (gethash tab-name opened-diffs))))
+        (if diff-info
+            ;; It's a diff tab - handle appropriately
             (progn
-              (kill-buffer buffer)
-              (claude-code-mcp--log 'out 'close-tab-success
+              ;; Check if ediff is still active
+              (when-let ((control-buf (alist-get 'control-buffer diff-info)))
+                (when (buffer-live-p control-buf)
+                  ;; Quit ediff properly
+                  (if (fboundp 'ediff-really-quit)
+                      (with-current-buffer control-buf
+                        (ediff-really-quit nil))
+                    (kill-buffer control-buf))))
+              ;; Clean up the diff
+              (claude-code-mcp--cleanup-diff tab-name session)
+              (claude-code-mcp--log 'out 'close-diff-tab-success
                                     `((tab-name . ,tab-name)
                                       (result . "TAB_CLOSED"))
                                     nil)
@@ -532,23 +701,37 @@ PARAMS should contain `path' or `tab_name' of the file to close."
               (list (cons 'content
                           (vector (list (cons 'type "text")
                                         (cons 'text "TAB_CLOSED"))))))
-          ;; Buffer not found - log and return success anyway
-          (progn
-            (message "Claude Code: No buffer named %s, ignoring close request" tab-name)
-            (claude-code-mcp--log 'out 'close-tab-no-buffer
-                                  `((tab-name . ,tab-name)
-                                    (result . "Buffer not found, returning success"))
-                                  nil)
-            (list (cons 'content
-                        (vector (list (cons 'type "text")
-                                      (cons 'text "TAB_CLOSED")))))))))
+          ;; Not a diff - treat tab_name as regular buffer name
+          (let ((buffer (get-buffer tab-name)))
+            (if buffer
+                (progn
+                  (kill-buffer buffer)
+                  (claude-code-mcp--log 'out 'close-tab-success
+                                        `((tab-name . ,tab-name)
+                                          (result . "TAB_CLOSED"))
+                                        nil)
+                  ;; Return success response
+                  (list (cons 'content
+                              (vector (list (cons 'type "text")
+                                            (cons 'text "TAB_CLOSED"))))))
+              ;; Buffer not found - log and return success anyway
+              (progn
+                (message "Claude Code: No buffer named %s, ignoring close request" tab-name)
+                (claude-code-mcp--log 'out 'close-tab-no-buffer
+                                      `((tab-name . ,tab-name)
+                                        (result . "Buffer not found, returning success"))
+                                      nil)
+                (list (cons 'content
+                            (vector (list (cons 'type "text")
+                                          (cons 'text "TAB_CLOSED")))))))))))
      ;; Neither path nor tab_name provided - this is still an error
      (t
       (error "Either 'path' or 'tab_name' must be provided")))))
 
-(defun claude-code-mcp--tool-get-diagnostics (params)
+(defun claude-code-mcp--tool-get-diagnostics (params _session)
   "Implementation of getDiagnostics tool.
-PARAMS contains optional uri."
+PARAMS contains optional uri.
+_SESSION is the MCP session (unused for this tool)."
   (let* ((uri (alist-get 'uri params))
          (file-path (when uri
                      (if (string-prefix-p "file://" uri)
@@ -619,24 +802,18 @@ PARAMS contains optional uri."
                 (vector (list (cons 'type "text")
                               (cons 'text (json-encode (list (cons 'diagnostics (vconcat (nreverse diagnostics))))))))))))
 
-(defun claude-code-mcp--tool-close-all-diff-tabs (_params)
+(defun claude-code-mcp--tool-close-all-diff-tabs (_params session)
   "Close all diff tabs created by Claude.
-PARAMS is empty."
+_PARAMS is empty.
+SESSION is the MCP session containing opened diffs."
   (let ((closed-count 0))
-    ;; Close all buffers that match our diff buffer naming pattern
-    (dolist (buffer (buffer-list))
-      (let ((buffer-name (buffer-name buffer)))
-        (when (string-match "^\\*Claude Diff: .*\\*$" buffer-name)
-          (claude-code-mcp--log 'out 'close-diff-tab
-                                `((buffer . ,buffer-name))
-                                nil)
-          (kill-buffer buffer)
-          (setq closed-count (1+ closed-count)))))
-    ;; Also close any "*Missing: filename*" buffers we created
-    (dolist (buffer (buffer-list))
-      (when (string-match "^\\*Missing: .*\\*$" (buffer-name buffer))
-        (kill-buffer buffer)
-        (setq closed-count (1+ closed-count))))
+    (when session
+      ;; Close all diffs for this session
+      (let ((opened-diffs (claude-code-mcp--session-opened-diffs session)))
+        (maphash (lambda (tab-name _diff-info)
+                   (claude-code-mcp--cleanup-diff tab-name session)
+                   (setq closed-count (1+ closed-count)))
+                 opened-diffs)))
     (message "Claude Code: Closed %d diff tabs" closed-count)
     ;; Return success with actual count
     (list (cons 'content
@@ -644,9 +821,10 @@ PARAMS is empty."
                               (cons 'text (format "CLOSED_%d_DIFF_TABS" closed-count))))))))
 
 ;; Real tool implementations for IDE features
-(defun claude-code-mcp--tool-get-open-editors (_params)
+(defun claude-code-mcp--tool-get-open-editors (_params _session)
   "Implementation of getOpenEditors tool.
-_PARAMS is unused for this tool."
+_PARAMS is unused for this tool.
+_SESSION is the MCP session (unused for this tool)."
   (let ((editors '()))
     ;; Collect all file-visiting buffers
     (dolist (buffer (buffer-list))
@@ -660,9 +838,10 @@ _PARAMS is unused for this tool."
                 (vector (list (cons 'type "text")
                               (cons 'text (json-encode (list (cons 'editors (vconcat (nreverse editors))))))))))))
 
-(defun claude-code-mcp--tool-get-workspace-folders (_params)
+(defun claude-code-mcp--tool-get-workspace-folders (_params _session)
   "Implementation of getWorkspaceFolders tool.
-_PARAMS is unused for this tool."
+_PARAMS is unused for this tool.
+_SESSION is the MCP session (unused for this tool)."
   (let ((folders '())
         (seen-dirs (make-hash-table :test 'equal)))
     ;; First, add current project if available
@@ -798,7 +977,9 @@ Returns the session object."
                    :key key
                    :port port
                    :initialized nil
-                   :auth-token auth-token)))
+                   :auth-token auth-token
+                   :opened-diffs (make-hash-table :test 'equal)
+                   :deferred-responses (make-hash-table :test 'equal))))
     (condition-case err
         (let ((server (websocket-server
                        port
