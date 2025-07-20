@@ -210,76 +210,105 @@ This is intended to be called from Claude Code hooks via emacsclient."
     ;; Add entry to org file
     (claude-code--add-org-todo-entry buffer-name-override message)
     
-    ;; Only show popup if the Claude buffer is not currently visible or focused
-    (unless (and target-buffer 
-                 (or (get-buffer-window target-buffer)
-                     (eq (current-buffer) target-buffer)))
-      ;; Create and display notification buffer
+    ;; Simple, non-intrusive popup notification
+    (let ((queue-total (length (claude-code--get-all-queue-entries))))
       (with-current-buffer (get-buffer-create notification-buffer)
-        (let ((inhibit-read-only t)
-              (queue-total (length (claude-code--get-all-queue-entries))))
+        (let ((inhibit-read-only t))
           (erase-buffer)
-          (insert (format "Claude notification: %s\n" (or message "Task completed")))
-          (insert (format "Buffer: %s\n" (or buffer-name-override "unknown buffer")))
-          ;; Add queue position information
-          (when (> queue-total 0)
-            (insert (format "Queue: %d entries\n" queue-total)))
-          (insert "\n")
-          
-          (if (and target-buffer (buffer-live-p target-buffer))
-              (insert-button "Switch to Claude buffer"
-                             'action `(lambda (_button)
-                                        (when (buffer-live-p ,target-buffer)
-                                          (switch-to-buffer ,target-buffer)
-                                          ;; Enter insert mode if using evil
-                                          (when (and (boundp 'evil-mode) evil-mode
-                                                     (string-match-p "^\\*claude:" ,buffer-name-override))
-                                            (evil-insert-state))
-                                          (claude-code--dismiss-and-kill-buffer ,notification-buffer)))
-                             'help-echo (format "Click to switch to %s" buffer-name-override))
-            (insert (format "Buffer '%s' not found or no longer exists." (or buffer-name-override "unknown"))))
-          
-          (insert "\n")
-          (when has-workspace
-            (insert-button "Open Workspace"
-                           'action `(lambda (_button)
-                                      (claude-code--switch-to-workspace-for-buffer ,buffer-name-override)
-                                      (claude-code--dismiss-and-kill-buffer ,notification-buffer))
-                           'help-echo (format "Click to switch to workspace for buffer: %s" buffer-name-override))
-            (insert "   ")
-            (insert-button "Open & Clear"
-                           'action `(lambda (_button)
-                                      (claude-code--switch-to-workspace-for-buffer ,buffer-name-override)
-                                      (claude-code--clear-most-recent-org-entry)
-                                      (claude-code--dismiss-and-kill-buffer ,notification-buffer))
-                           'help-echo (format "Click to switch to workspace and clear org entry for buffer: %s" buffer-name-override))
-            (insert "\n"))
-          
-          (insert "\n")
-          (insert-button "View Task Queue"
-                         'action `(lambda (_button)
-                                    (find-file ,claude-code-taskmaster-org-file)
-                                    (claude-code--dismiss-and-kill-buffer ,notification-buffer))
-                         'help-echo "Click to view the org mode task queue")
-          (insert "   ")
-          (insert-button "Skip Entry"
-                         'action `(lambda (_button)
-                                    (claude-code--delete-queue-entry-for-buffer ,buffer-name-override)
-                                    (claude-code--dismiss-and-kill-buffer ,notification-buffer)
-                                    (message "Skipped queue entry for %s" ,buffer-name-override))
-                         'help-echo "Click to skip this queue entry")
-          
+          (insert (format "Claude task completed%s\nBuffer: %s" 
+                          (if (> queue-total 0)
+                              (format " - %d in queue" queue-total)
+                            "")
+                          (or buffer-name-override "unknown buffer")))
           (goto-char (point-min))
           (setq buffer-read-only t))
         
-        ;; Display the notification buffer and set up dismissal
-        (display-buffer notification-buffer)
-        (claude-code--enable-notification-dismiss notification-buffer)
+        ;; Display as small popup without stealing focus
+        (display-buffer notification-buffer 
+                        '((display-buffer-in-side-window)
+                          (side . bottom)
+                          (window-height . 1)
+                          (select . nil)))
         
-        ;; Auto-dismiss timer
-        (run-with-timer 10 nil `(lambda ()
-                                  (when (buffer-live-p (get-buffer ,notification-buffer))
-                                    (claude-code--dismiss-and-kill-buffer ,notification-buffer))))))))
+        ;; Auto-dismiss after 2 seconds
+        (run-with-timer 2 nil `(lambda ()
+                                 (when (get-buffer ,notification-buffer)
+                                   (kill-buffer ,notification-buffer))))))
+    
+    ;; Disabled complex popup - keeping code for potential future use
+    (when nil  ;; Change to t to re-enable complex popups
+      (unless (and target-buffer 
+                   (or (get-buffer-window target-buffer)
+                       (eq (current-buffer) target-buffer)))
+        ;; Create and display notification buffer
+        (with-current-buffer (get-buffer-create notification-buffer)
+          (let ((inhibit-read-only t)
+                (queue-total (length (claude-code--get-all-queue-entries))))
+            (erase-buffer)
+            (insert (format "Claude notification: %s\n" (or message "Task completed")))
+            (insert (format "Buffer: %s\n" (or buffer-name-override "unknown buffer")))
+            ;; Add queue position information
+            (when (> queue-total 0)
+              (insert (format "Queue: %d entries\n" queue-total)))
+            (insert "\n")
+
+            (if (and target-buffer (buffer-live-p target-buffer))
+                (insert-button "Switch to Claude buffer"
+                               'action `(lambda (_button)
+                                          (when (buffer-live-p ,target-buffer)
+                                            (switch-to-buffer ,target-buffer)
+                                            ;; Enter insert mode if using evil
+                                            (when (and (boundp 'evil-mode) evil-mode
+                                                       (string-match-p "^\\*claude:" ,buffer-name-override))
+                                              (evil-insert-state))
+                                            (claude-code--dismiss-and-kill-buffer ,notification-buffer)))
+                               'help-echo (format "Click to switch to %s" buffer-name-override))
+              (insert (format "Buffer '%s' not found or no longer exists." (or buffer-name-override "unknown"))))
+
+            (insert "\n")
+            (when has-workspace
+              (insert-button "Open Workspace"
+                             'action `(lambda (_button)
+                                        (claude-code--switch-to-workspace-for-buffer ,buffer-name-override)
+                                        (claude-code--dismiss-and-kill-buffer ,notification-buffer))
+                             'help-echo (format "Click to switch to workspace for buffer: %s" buffer-name-override))
+              (insert "   ")
+              (insert-button "Open & Clear"
+                             'action `(lambda (_button)
+                                        (claude-code--switch-to-workspace-for-buffer ,buffer-name-override)
+                                        (claude-code--clear-most-recent-org-entry)
+                                        (claude-code--dismiss-and-kill-buffer ,notification-buffer))
+                             'help-echo (format "Click to switch to workspace and clear org entry for buffer: %s" buffer-name-override))
+              (insert "\n"))
+
+            (insert "\n")
+            (insert-button "View Task Queue"
+                           'action `(lambda (_button)
+                                      (find-file ,claude-code-taskmaster-org-file)
+                                      (claude-code--dismiss-and-kill-buffer ,notification-buffer))
+                           'help-echo "Click to view the org mode task queue")
+            (insert "   ")
+            (insert-button "Skip Entry"
+                           'action `(lambda (_button)
+                                      (claude-code--delete-queue-entry-for-buffer ,buffer-name-override)
+                                      (claude-code--dismiss-and-kill-buffer ,notification-buffer)
+                                      (message "Skipped queue entry for %s" ,buffer-name-override))
+                           'help-echo "Click to skip this queue entry")
+
+            (goto-char (point-min)))
+          
+          ;; Display the notification buffer and set up dismissal
+          (display-buffer notification-buffer
+                          '((display-buffer-in-side-window)
+                            (side . bottom)
+                            (window-height . 0.3)
+                            (select . nil)))
+          (claude-code--enable-notification-dismiss notification-buffer)
+          
+          ;; Auto-dismiss timer
+          (run-with-timer 10 nil `(lambda ()
+                                    (when (buffer-live-p (get-buffer ,notification-buffer))
+                                      (claude-code--dismiss-and-kill-buffer ,notification-buffer)))))))))
 
 ;;;###autoload
 (defun claude-code-test-notification ()
@@ -518,6 +547,8 @@ This runs on pre-command-hook in Claude buffers."
                (quit-window . kill)))
 
 ;; Setup keybindings when this module loads
+(global-set-key (kbd "C-c c {") 'claude-code-queue-previous)
+(global-set-key (kbd "C-c c }") 'claude-code-queue-next)
 
 (provide 'claude-code-org-notifications)
 
