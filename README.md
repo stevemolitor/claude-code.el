@@ -227,6 +227,14 @@ You can change this behavior by customizing `claude-code-newline-keybinding-styl
 - `claude-code-goto-recent-workspace` (`C-c c w`) - Go to the most recent workspace from the taskmaster org file
 - `claude-code-goto-recent-workspace-and-clear` (`C-c c W`) - Go to the most recent workspace and mark the org entry as DONE
 
+#### Queue Management Commands
+
+- `claude-code-queue-browse` (`C-c c q`) - Browse and select from the task queue using minibuffer completion
+- `claude-code-queue-next` - Navigate to the next entry in the task queue
+- `claude-code-queue-previous` - Navigate to the previous entry in the task queue
+- `claude-code-queue-skip` - Skip (delete) the current queue entry and advance to the next
+- `claude-code-queue-status` - Show current queue position and total number of entries
+
 ## Desktop Notifications
 
 claude-code.el notifies you when Claude finishes processing and is waiting for input. By default, it displays a message in the minibuffer and pulses the modeline for visual feedback.
@@ -299,12 +307,14 @@ For Windows, you can use PowerShell to create toast notifications:
 
 ### Enhanced Notification System
 
-The enhanced notification system provides clickable notifications that allow you to jump directly to Claude buffers:
+The enhanced notification system provides smart, context-aware notifications with queue management:
 
-- When Claude finishes a task, a notification buffer appears with a clickable button
-- Click the button to instantly switch to the Claude buffer
-- Notifications auto-dismiss after 10 seconds to reduce clutter
-- Works with both task completion and session termination events
+- **Smart Visibility Detection**: Popup notifications only appear when the Claude buffer is not currently visible in your active perspective
+- **Always Queue**: Task entries are always added to the taskmaster.org file regardless of buffer visibility  
+- **Queue Counter**: Notifications show the current number of entries in the task queue
+- **Auto-dismiss**: Simple notifications auto-dismiss after 2 seconds to reduce clutter
+- **No Duplicates**: Each buffer is limited to one queue entry (existing entries are replaced)
+- **Automatic Cleanup**: Queue entries are automatically removed when Claude buffers are closed
 
 ### Org Mode Task Tracking
 
@@ -317,6 +327,8 @@ claude-code.el includes an optional Org mode integration that automatically trac
 - **Clickable Buffer Links**: Elisp links in org entries allow instant buffer switching
 - **Smart Display**: Popup notifications only appear when Claude buffer is not currently visible (taskmaster.org entries are always created)
 - **Dual Event Tracking**: Captures both task completion and session stop events
+- **Automatic Queue Cleanup**: Queue entries are automatically removed when Claude buffers are closed
+- **No Duplicates**: Each buffer is limited to one queue entry to prevent clutter
 
 #### Setup
 
@@ -355,6 +367,15 @@ Claude Code automatically exports the `CLAUDE_BUFFER_NAME` environment variable 
 
 The environment variable contains the full buffer name (e.g., `*claude:/path/to/project:default*`) and is automatically set when Claude starts.
 
+#### Queue Browser and Navigation
+
+The notification system includes a powerful queue browser for managing multiple completed tasks:
+
+- **Queue Browser**: Use `C-c c q` to browse and select from the task queue using minibuffer completion  
+- **Numbered Entries**: Tasks are displayed as numbered list (e.g., "1. *claude:/path/to/project:default*")
+- **Direct Navigation**: Select any queue entry to instantly jump to that Claude buffer and workspace
+- **Position Tracking**: The system remembers your current position in the queue across commands
+
 #### Workspace Integration
 
 The notification system includes workspace support that integrates with project-based workflows:
@@ -366,6 +387,18 @@ The notification system includes workspace support that integrates with project-
 - **Keyboard Commands**: Use `C-c c w` to go to the most recent workspace or `C-c c W` to go there and clear the org entry
 
 When Claude completes a task, the workspace information is automatically extracted from the buffer name and included in both the org mode log entries and notification popups. The "Open & Clear" button and `C-c c W` command allow you to quickly navigate to a workspace and mark the corresponding org entry as DONE, helping you maintain a clean task queue.
+
+#### Queue Navigation Commands
+
+The notification system includes several commands for navigating and managing the task queue:
+
+- **Browse Queue**: Use `claude-code-queue-browse` to view and select from all queue entries using minibuffer completion
+- **Next Entry**: Use `claude-code-queue-next` to advance to the next entry in the queue
+- **Previous Entry**: Use `claude-code-queue-previous` to go back to the previous queue entry  
+- **Skip Entry**: Use `claude-code-queue-skip` to delete the current queue entry and advance to the next
+- **Queue Status**: Use `claude-code-queue-status` to show your current position and total queue size
+
+These commands maintain queue position tracking, so you can navigate through your completed tasks systematically. The queue browser provides the most user-friendly interface with numbered entries and completion.
 
 ## Tips and Tricks
 
