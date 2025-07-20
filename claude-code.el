@@ -1184,6 +1184,10 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
       ;; Add cleanup hook to remove directory mappings when buffer is killed
       (add-hook 'kill-buffer-hook #'claude-code--cleanup-directory-mapping nil t)
 
+      ;; Add buffer to current perspective if persp-mode is active
+      (when (and (featurep 'persp-mode) (fboundp 'persp-add-buffer))
+        (persp-add-buffer buffer))
+
       ;; run start hooks
       (run-hooks 'claude-code-start-hook)
 
