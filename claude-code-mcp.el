@@ -1,4 +1,4 @@
-;;; claude-code-mcp.el  --- Claude MCP over websockets implementation  -*- lexical-binding:t -*-
+;;; claude-code-mcp.el --- Claude MCP over websockets implementation -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 ;; Integrate claude-code.el with claude processes using websockets + MCP.
@@ -6,7 +6,17 @@
 
 ;;; Code:
 ;;; Require dependencies
-(require 'websocket)
+(require 'json)
+(require 'cl-lib)
+
+;; Declare external functions and variables from websocket.el
+(declare-function websocket-server "websocket" (port &rest args))
+(declare-function websocket-server-close "websocket" (server))
+(declare-function websocket-send-text "websocket" (websocket text))
+(declare-function websocket-frame-text "websocket" (frame))
+
+;; Try to load websocket if available
+(require 'websocket nil t)
 
 ;;; Session structure
 (cl-defstruct claude-code-mcp--session
@@ -292,22 +302,11 @@ in Emacs to connect to an claude process running outside Emacs." )
      (inputSchema . ((type . "object")
                      (properties . ()))))
    `((name . "openFile")
-     (description . "Open a file in the editor and optionally select a range of text")
+     (description . "Open a file in the editor")
      (inputSchema . ((type . "object")
                      (properties . ((uri . ((type . "string")
-                                            (description . "The file URI or path to open")))
-                                    (selection . ((type . "object")
-                                                  (description . "Optional selection range")
-                                                  (properties . ((start . ((type . "object")
-                                                                           (properties . ((line . ((type . "integer")))
-                                                                                          (character . ((type . "integer")))))
-                                                                           (required . ["line" "character"])))
-                                                                 (end . ((type . "object")
-                                                                         (properties . ((line . ((type . "integer")))
-                                                                                        (character . ((type . "integer")))))
-                                                                         (required . ["line" "character"]))))
-                                                  (required . ["start" "end"])))))
-                     (required . ["uri"]))))
+                                            (description . "The file URI or path to open")))))
+                     (required . ,(vector "uri")))))
    ;; Stub tools to prevent crashes
    `((name . "openDiff")
      (description . "Open a diff view")
@@ -316,12 +315,12 @@ in Emacs to connect to an claude process running outside Emacs." )
                                     (new_file_path . ((type . "string")))
                                     (new_file_contents . ((type . "string")))
                                     (tab_name . ((type . "string")))))
-                     (required . ["old_file_path" "new_file_path" "new_file_contents"]))))
+                     (required . ,(vector "old_file_path" "new_file_path" "new_file_contents")))))
    `((name . "close_tab") 
      (description . "Close a tab")
      (inputSchema . ((type . "object")
                      (properties . ((tab_name . ((type . "string")))))
-                     (required . ["tab_name"]))))
+                     (required . ,(vector "tab_name")))))
    `((name . "getDiagnostics")
      (description . "Get diagnostics for a file")
      (inputSchema . ((type . "object")
@@ -359,10 +358,9 @@ _PARAMS is unused for this tool."
 
 (defun claude-code-mcp--tool-open-file (params)
   "Implementation of openFile tool.
-PARAMS contains uri and optionally selection with start/end positions."
+PARAMS contains uri."
   (condition-case err
       (let* ((uri (alist-get 'uri params))
-             (selection (alist-get 'selection params))
              ;; Handle file:// URIs
              (file-path (if (string-prefix-p "file://" uri)
                             (substring uri 7)
@@ -376,28 +374,6 @@ PARAMS contains uri and optionally selection with start/end positions."
         
         ;; Open the file
         (find-file file-path)
-        
-        ;; Handle optional selection
-        (when selection
-          (let* ((start (alist-get 'start selection))
-                 (end (alist-get 'end selection))
-                 (start-line (1+ (alist-get 'line start))) ; Convert from 0-based to 1-based
-                 (start-char (alist-get 'character start))
-                 (end-line (1+ (alist-get 'line end)))
-                 (end-char (alist-get 'character end)))
-            ;; Go to start position
-            (goto-char (point-min))
-            (forward-line (1- start-line))
-            (forward-char start-char)
-            (let ((start-pos (point)))
-              ;; Go to end position
-              (goto-char (point-min))
-              (forward-line (1- end-line))
-              (forward-char end-char)
-              (let ((end-pos (point)))
-                ;; Select the region
-                (goto-char start-pos)
-                (push-mark end-pos t t)))))
         
         ;; Return success with file information
         `((content . [((type . "text") 
