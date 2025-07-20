@@ -551,13 +551,9 @@ This runs on pre-command-hook in Claude buffers."
              '("^\\*Claude Code Notification\\*$"
                (display-buffer-in-side-window)
                (side . bottom)
-               (window-height . 0.3)
+               (window-height . 0.1)
                (select . nil)
                (quit-window . kill)))
-
-;; Setup keybindings when this module loads
-(global-set-key (kbd "C-c c {") 'claude-code-queue-previous)
-(global-set-key (kbd "C-c c }") 'claude-code-queue-next)
 
 (provide 'claude-code-org-notifications)
 
