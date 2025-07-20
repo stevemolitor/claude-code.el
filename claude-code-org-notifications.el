@@ -69,8 +69,15 @@ For example, *claude:/path/to/project/* returns /path/to/project/."
   "Add a TODO entry to the taskmaster org file.
 
 BUFFER-NAME is the name of the Claude buffer that completed a task.
-MESSAGE is the notification message to include in the TODO entry."
+MESSAGE is the notification message to include in the TODO entry.
+
+If an entry for the same buffer already exists, it will be removed first
+to prevent duplicate entries in the queue."
   (claude-code--ensure-claude-directory)
+  ;; First, remove any existing entry for this buffer
+  (when buffer-name
+    (claude-code--delete-queue-entry-for-buffer buffer-name))
+  
   (let* ((timestamp (claude-code--format-org-timestamp))
          (buffer-link (if buffer-name
                           (format "[[elisp:(switch-to-buffer \"%s\")][%s]]" buffer-name buffer-name)
@@ -199,6 +206,27 @@ MESSAGE is the notification message to include in the TODO entry."
 
 ;;;; Enhanced notification system
 
+(defun claude-code--buffer-visible-in-current-perspective-p (buffer-name)
+  "Check if BUFFER-NAME is currently visible in the active perspective.
+
+Returns t if the buffer is visible in a window in the current perspective,
+nil otherwise."
+  (when-let ((target-buffer (get-buffer buffer-name)))
+    (and 
+     ;; Buffer exists and is live
+     (buffer-live-p target-buffer)
+     ;; Buffer has a visible window
+     (get-buffer-window target-buffer)
+     ;; If persp-mode is active, check if we're in the right perspective
+     (or (not (featurep 'persp-mode))
+         (let ((buffer-persp (claude-code--find-workspace-for-buffer buffer-name))
+               (current-persp (when (fboundp 'get-current-persp)
+                                (let ((cp (get-current-persp)))
+                                  (when cp (persp-name cp))))))
+           ;; Either buffer has no perspective (global) or we're in its perspective
+           (or (null buffer-persp)
+               (string= buffer-persp current-persp)))))))
+
 ;;;###autoload
 (defun claude-code-handle-notification (message &optional buffer-name-override)
   "Handle notification with clickable link to Claude buffer and org queue entry.
@@ -212,35 +240,37 @@ This is intended to be called from Claude Code hooks via emacsclient."
   (let* ((notification-buffer claude-code-notification-buffer-name)
          (target-buffer (when buffer-name-override (get-buffer buffer-name-override)))
          (has-workspace (and buffer-name-override 
-                             (claude-code--get-workspace-from-buffer-name buffer-name-override))))
+                             (claude-code--get-workspace-from-buffer-name buffer-name-override)))
+         (buffer-visible (claude-code--buffer-visible-in-current-perspective-p buffer-name-override)))
 
-    ;; Add entry to org file
+    ;; Always add entry to org file regardless of visibility
     (claude-code--add-org-todo-entry buffer-name-override message)
     
-    ;; Simple, non-intrusive popup notification
-    (let ((queue-total (length (claude-code--get-all-queue-entries))))
-      (with-current-buffer (get-buffer-create notification-buffer)
-        (let ((inhibit-read-only t))
-          (erase-buffer)
-          (insert (format "Claude task completed%s\nBuffer: %s" 
-                          (if (> queue-total 0)
-                              (format " - %d in queue" queue-total)
-                            "")
-                          (or buffer-name-override "unknown buffer")))
-          (goto-char (point-min))
-          (setq buffer-read-only t))
-        
-        ;; Display as small popup without stealing focus
-        (display-buffer notification-buffer 
-                        '((display-buffer-in-side-window)
-                          (side . bottom)
-                          (window-height . 1)
-                          (select . nil)))
-        
-        ;; Auto-dismiss after 2 seconds
-        (run-with-timer 2 nil `(lambda ()
-                                 (when (get-buffer ,notification-buffer)
-                                   (kill-buffer ,notification-buffer))))))
+    ;; Only show popup notification if buffer is not currently visible
+    (unless buffer-visible
+      (let ((queue-total (length (claude-code--get-all-queue-entries))))
+        (with-current-buffer (get-buffer-create notification-buffer)
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (insert (format "Claude task completed%s\nBuffer: %s" 
+                            (if (> queue-total 0)
+                                (format " - %d in queue" queue-total)
+                              "")
+                            (or buffer-name-override "unknown buffer")))
+            (goto-char (point-min))
+            (setq buffer-read-only t))
+          
+          ;; Display as small popup without stealing focus
+          (display-buffer notification-buffer 
+                          '((display-buffer-in-side-window)
+                            (side . bottom)
+                            (window-height . 1)
+                            (select . nil)))
+          
+          ;; Auto-dismiss after 2 seconds
+          (run-with-timer 2 nil `(lambda ()
+                                   (when (get-buffer ,notification-buffer)
+                                     (kill-buffer ,notification-buffer)))))))
     
     ;; Disabled complex popup - keeping code for potential future use
     (when nil  ;; Change to t to re-enable complex popups
@@ -508,6 +538,25 @@ This is intended to be called from Claude Code hooks via emacsclient."
       (message "Queue: %d/%d entries, current: %s" 
                (1+ claude-code--queue-position) total 
                (nth claude-code--queue-position entries)))))
+
+;;;###autoload
+(defun claude-code-queue-browse ()
+  "Browse and select from the taskmaster.org queue using minibuffer completion."
+  (interactive)
+  (let ((entries (claude-code--get-all-queue-entries)))
+    (if (null entries)
+        (message "Queue is empty")
+      (let* ((choices (cl-loop for entry in entries
+                               for i from 0
+                               collect (cons (format "%d. %s" (1+ i) entry) entry)))
+             (selection (completing-read "Select queue entry: " choices nil t))
+             (selected-buffer (cdr (assoc selection choices))))
+        (when selected-buffer
+          ;; Update queue position to match selection
+          (setq claude-code--queue-position (cl-position selected-buffer entries :test #'string=))
+          ;; Switch to the selected buffer
+          (claude-code--switch-to-workspace-for-buffer selected-buffer)
+          (message "Switched to queue entry: %s" selected-buffer))))))
 
 ;;;; Automatic Entry Clearing on RET
 
