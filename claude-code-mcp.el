@@ -260,13 +260,92 @@ in Emacs to connect to an claude process running outside Emacs." )
                          (make-hash-table :test 'equal)))))))
 
 (defun claude-code-mcp--handle-tools-list (_session ws id params)
-  "Handle initialize request with ID and PARAMS from WS for SESSION."
-  (claude-code-mcp--send-response ws id `((tools . []))))
+  "Handle tools/list request with ID and PARAMS from WS for SESSION."
+  (claude-code-mcp--send-response 
+   ws id 
+   `((tools . ,(claude-code-mcp--get-tools-list)))))
 
 (defun claude-code-mcp--handle-tools-call (_session ws id params)
   "Handle tools/call request with ID and PARAMS from WS for SESSION."
-  ;; [TODO]
-  (claude-code-mcp--send-error ws id -32601 "No tools implemented yet"))
+  (let* ((tool-name (alist-get 'name params))
+         (arguments (alist-get 'arguments params))
+         (handler (claude-code-mcp--get-tool-handler tool-name)))
+    (if handler
+        (condition-case err
+            (let ((result (funcall handler arguments)))
+              (claude-code-mcp--send-response ws id result))
+          (error
+           (claude-code-mcp--send-error 
+            ws id -32603 
+            (format "Error in tool %s: %s" tool-name (error-message-string err)))))
+      (claude-code-mcp--send-error 
+       ws id -32601 
+       (format "Tool not found: %s" tool-name)))))
+
+;;; MCP Tools
+(defun claude-code-mcp--get-tools-list ()
+  "Get the list of available MCP tools."
+  (vector
+   ;; Stub tools to prevent crashes
+   `((name . "openDiff")
+     (description . "Open a diff view")
+     (inputSchema . ((type . "object")
+                     (properties . ((old_file_path . ((type . "string")))
+                                    (new_file_path . ((type . "string")))
+                                    (new_file_contents . ((type . "string")))
+                                    (tab_name . ((type . "string")))))
+                     (required . ["old_file_path" "new_file_path" "new_file_contents"]))))
+   `((name . "close_tab") 
+     (description . "Close a tab")
+     (inputSchema . ((type . "object")
+                     (properties . ((tab_name . ((type . "string")))))
+                     (required . ["tab_name"]))))
+   `((name . "getDiagnostics")
+     (description . "Get diagnostics for a file")
+     (inputSchema . ((type . "object")
+                     (properties . ((uri . ((type . "string"))))))))
+   `((name . "closeAllDiffTabs")
+     (description . "Close all diff tabs")
+     (inputSchema . ((type . "object")
+                     (properties . ()))))))
+
+(defun claude-code-mcp--get-tool-handler (name)
+  "Get the handler function for tool NAME."
+  (pcase name
+    ("openDiff" #'claude-code-mcp--tool-open-diff)
+    ("close_tab" #'claude-code-mcp--tool-close-tab)
+    ("getDiagnostics" #'claude-code-mcp--tool-get-diagnostics)
+    ("closeAllDiffTabs" #'claude-code-mcp--tool-close-all-diff-tabs)
+    (_ nil)))
+
+;; Stub tool implementations
+(defun claude-code-mcp--tool-open-diff (params)
+  "Stub implementation of openDiff tool.
+PARAMS contains old_file_path, new_file_path, new_file_contents, tab_name."
+  ;; Just return success without actually opening diff
+  `((content . [((type . "text") 
+                 (text . "Diff view opened (stub)"))])))
+
+(defun claude-code-mcp--tool-close-tab (params)
+  "Stub implementation of close_tab tool.
+PARAMS contains tab_name."
+  ;; Just return success without actually closing anything
+  `((content . [((type . "text") 
+                 (text . "Tab closed (stub)"))])))
+
+(defun claude-code-mcp--tool-get-diagnostics (params)
+  "Stub implementation of getDiagnostics tool.
+PARAMS contains optional uri."
+  ;; Return empty diagnostics array
+  `((content . [((type . "text") 
+                 (text . ,(json-encode '((diagnostics . [])))))])))
+
+(defun claude-code-mcp--tool-close-all-diff-tabs (params)
+  "Stub implementation of closeAllDiffTabs tool.
+PARAMS is empty."
+  ;; Just return success
+  `((content . [((type . "text") 
+                 (text . "All diff tabs closed (stub)"))])))
 
 ;;; Websocket server management functions
 ;; NOTE: Authentication validation limitation
