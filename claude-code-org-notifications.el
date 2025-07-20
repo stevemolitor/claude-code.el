@@ -47,6 +47,17 @@ with timestamps and links back to the original Claude buffers."
   :type 'file
   :group 'claude-code)
 
+(defcustom claude-code-auto-advance-queue nil
+  "Whether to automatically advance to the next queue entry after sending input.
+
+When non-nil, pressing enter (or sending any input) in a Claude buffer will:
+1. Clear the current buffer from the task queue
+2. Automatically switch to the next Claude buffer in the queue
+
+This provides a streamlined workflow for processing multiple completed tasks."
+  :type 'boolean
+  :group 'claude-code)
+
 ;;;; Org mode integration functions
 
 (defun claude-code--ensure-claude-directory ()
@@ -581,6 +592,34 @@ seamless queue progression."
       (when (claude-code--delete-queue-entry-for-buffer buffer-name)
         (message "Auto-cleared queue entry for %s" buffer-name)))))
 
+(defun claude-code--auto-advance-to-next ()
+  "Clear current buffer from queue and advance to the next queue entry.
+
+This function clears the current Claude buffer from the task queue and
+automatically switches to the next available queue entry. If no more
+entries exist, it displays a message."
+  (let ((buffer-name (buffer-name)))
+    (when (and claude-code-auto-advance-queue 
+               (string-match-p "^\\*claude:" buffer-name))
+      ;; Clear current buffer from queue
+      (when (claude-code--delete-queue-entry-for-buffer buffer-name)
+        (message "Cleared queue entry for %s" buffer-name)
+        ;; Get remaining entries after clearing current one
+        (let* ((remaining-entries (claude-code--get-all-queue-entries))
+               ;; Filter out the current buffer from remaining entries (in case it wasn't properly cleared)
+               (other-entries (cl-remove-if (lambda (buf-name) 
+                                              (string= buf-name buffer-name))
+                                            remaining-entries)))
+          (if other-entries
+              (progn
+                ;; Reset queue position to 0 and advance to first different entry
+                (setq claude-code--queue-position 0)
+                (let ((next-buffer (nth claude-code--queue-position other-entries)))
+                  (claude-code--switch-to-workspace-for-buffer next-buffer)
+                  (message "Auto-advanced to next queue entry: %s (%d remaining)" 
+                           next-buffer (length other-entries))))
+            (message "Queue is now empty - no more entries to process")))))))
+
 (defun claude-code--setup-auto-clear-hook ()
   "Set up automatic entry clearing for Claude buffers.
 This function is added to `claude-code-start-hook' to enable automatic
@@ -599,10 +638,24 @@ This runs on pre-command-hook in Claude buffers."
                  (eq this-command 'newline)
                  (eq this-command 'electric-newline-and-maybe-indent)
                  (string-match-p "return\\|newline\\|send" (symbol-name (or this-command 'unknown)))))
-    (claude-code--auto-clear-on-ret)))
+    ;; If auto-advance mode is enabled, use the advance function, otherwise just clear
+    (if claude-code-auto-advance-queue
+        (claude-code--auto-advance-to-next)
+      (claude-code--auto-clear-on-ret))))
 
 ;; Add the hook to set up auto-clearing in Claude buffers
 (add-hook 'claude-code-start-hook #'claude-code--setup-auto-clear-hook)
+
+;;;###autoload
+(defun claude-code-toggle-auto-advance-queue ()
+  "Toggle auto-advance queue mode on or off.
+
+When enabled, pressing enter in a Claude buffer will clear it from the
+queue and automatically advance to the next queue entry."
+  (interactive)
+  (setq claude-code-auto-advance-queue (not claude-code-auto-advance-queue))
+  (message "Claude Code auto-advance queue mode %s" 
+           (if claude-code-auto-advance-queue "enabled" "disabled")))
 
 ;;;; Integration
 

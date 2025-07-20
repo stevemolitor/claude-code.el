@@ -234,6 +234,7 @@ You can change this behavior by customizing `claude-code-newline-keybinding-styl
 - `claude-code-queue-previous` - Navigate to the previous entry in the task queue
 - `claude-code-queue-skip` - Skip (delete) the current queue entry and advance to the next
 - `claude-code-queue-status` - Show current queue position and total number of entries
+- `claude-code-toggle-auto-advance-queue` - Toggle auto-advance mode on/off
 
 ## Desktop Notifications
 
@@ -400,6 +401,31 @@ The notification system includes several commands for navigating and managing th
 
 These commands maintain queue position tracking, so you can navigate through your completed tasks systematically. The queue browser provides the most user-friendly interface with numbered entries and completion.
 
+#### Auto-Advance Queue Mode
+
+Claude-code.el includes an optional auto-advance mode for streamlined queue processing:
+
+- **Auto-Advance Mode**: Enable `claude-code-auto-advance-queue` to automatically advance through the task queue
+- **Seamless Workflow**: When enabled, pressing enter in any Claude buffer clears it from the queue and jumps to the next waiting task
+- **Smart Navigation**: Automatically switches to a different Claude buffer's workspace and enters insert mode (with evil-mode)
+- **Intelligent Filtering**: Only advances to different Claude buffers, never stays in the current buffer
+- **Queue Status**: Shows remaining queue count when advancing
+- **Toggle Command**: Use `claude-code-toggle-auto-advance-queue` to quickly enable/disable the mode
+
+To enable auto-advance mode in your configuration:
+
+```elisp
+(setq claude-code-auto-advance-queue t)
+```
+
+Or toggle it interactively:
+
+```elisp
+M-x claude-code-toggle-auto-advance-queue
+```
+
+This mode is perfect for processing multiple completed Claude tasks efficiently - just respond to each task and you'll automatically be taken to the next different one. The system ensures you never get stuck in the same buffer and always advance to a truly different Claude instance.
+
 ## Tips and Tricks
 
 - **Paste images**: Use `C-v` to paste images into the Claude window. Note that on macOS, this is `Control-v`, not `Command-v`.
@@ -484,6 +510,12 @@ These commands maintain queue position tracking, so you can navigate through you
 ;; when you run delete-other-windows or similar commands, keeping the
 ;; Claude buffer visible and accessible.
 (setq claude-code-no-delete-other-windows t)
+
+;; Enable auto-advance queue mode (default is nil)
+;; When enabled, pressing enter in a Claude buffer will clear it from the
+;; task queue and automatically advance to the next queue entry.
+;; This provides a streamlined workflow for processing multiple completed tasks.
+(setq claude-code-auto-advance-queue t)
 ```
 
 ### Customizing Window Position
