@@ -147,6 +147,13 @@ Choose between \\='eat (default) and \\='vterm terminal emulators."
                 (const :tag "Vterm terminal emulator" vterm))
   :group 'claude-code)
 
+(defcustom claude-code-enable-ide-integration nil
+  "Enable IDE integration via MCP (Model Context Protocol).
+When non-nil, Claude Code will start an MCP server to provide
+IDE features to Claude."
+  :type 'boolean
+  :group 'claude-code)
+
 (defcustom claude-code-no-delete-other-windows nil
   "Whether to prevent Claude Code windows from being deleted.
 
@@ -321,6 +328,9 @@ for each directory across multiple invocations.")
 
 (defvar claude-code--window-widths nil
   "Hash table mapping windows to their last known widths for eat terminals.")
+
+(defvar-local claude-code--mcp-session nil
+  "MCP session for this Claude buffer.")
 
 ;;;; Key bindings
 ;;;###autoload (autoload 'claude-code-command-map "claude-code")
@@ -1089,6 +1099,9 @@ If FORCE-PROMPT is non-nil, always prompt even if no instances exist."
   "Kill a Claude BUFFER by cleaning up hooks and processes."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
+      ;; Clean up MCP session if present
+      (when claude-code--mcp-session
+        (claude-code-mcp--cleanup-session (buffer-name buffer)))
       ;; Remove the adjust window size advice if it was added
       (when claude-code-optimize-window-resize
         (advice-remove (claude-code--term-get-adjust-process-window-size-fn claude-code-terminal-backend) #'claude-code--adjust-window-size-advice))
@@ -1184,6 +1197,19 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
          ;; Set process-adaptive-read-buffering to nil to avoid flickering while Claude is processing
          (process-adaptive-read-buffering nil)
 
+         ;; Start MCP server if IDE integration is enabled
+         (mcp-port (when claude-code-enable-ide-integration
+                     (let ((session (claude-code-mcp--start-server buffer-name dir)))
+                       (when session
+                         (claude-code-mcp--session-port session)))))
+
+         ;; Set environment variables for MCP
+         (process-environment (if mcp-port
+                                  (append `(,(format "CLAUDE_CODE_SSE_PORT=%d" mcp-port)
+                                            "ENABLE_IDE_INTEGRATION=true")
+                                          process-environment)
+                                process-environment))
+
          ;; Start the terminal process
          (buffer (claude-code--term-make claude-code-terminal-backend buffer-name claude-code-program program-switches)))
 
@@ -1197,6 +1223,10 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
 
     ;; setup claude buffer
     (with-current-buffer buffer
+
+      ;; Store MCP session if we started one
+      (when (and claude-code-enable-ide-integration mcp-port)
+        (setq claude-code--mcp-session (gethash buffer-name claude-code-mcp--sessions)))
 
       ;; Configure terminal with backend-specific settings
       (claude-code--term-configure claude-code-terminal-backend)

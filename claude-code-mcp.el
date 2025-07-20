@@ -517,8 +517,6 @@ Returns the session object."
         (fileUrl . ,file-url)
         (selection . ,selection)))))
 
-;; Removed claude-code-mcp--send-selection - we now use per-session sending
-
 ;;;; Selection global hooks
 (defun claude-code-mcp--track-selection-change ()
   "Track selection changes in file buffers."
@@ -645,6 +643,19 @@ Returns the session object."
 (defun claude-code-mcp--cleanup-on-exit ()
   "Clean up all MCP sessions and lockfiles on Emacs exit."
   (claude-code-mcp-stop-all-servers))
+
+(defun claude-code-mcp--cleanup-session (key)
+  "Clean up the MCP session for KEY."
+  (when-let* ((session (gethash key claude-code-mcp--sessions))
+              (server (claude-code-mcp--session-server session))
+              (port (claude-code-mcp--session-port session)))
+    ;; Remove lockfile before closing server
+    (claude-code-mcp--remove-lockfile port)
+    ;; Close the websocket server
+    (websocket-server-close server)
+    ;; Remove from sessions hash table
+    (remhash key claude-code-mcp--sessions)
+    (message "Cleaned up MCP session for %s" key)))
 
 ;; Register cleanup on Emacs exit
 (add-hook 'kill-emacs-hook #'claude-code-mcp--cleanup-on-exit)

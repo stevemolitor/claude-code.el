@@ -21,11 +21,12 @@ These prevent Claude from crashing when it tries to use them.
 
 ## Phase 1: Basic Integration (Day 1)
 
-### Step 1.1: Wire up MCP server to claude-code.el
-- Modify `claude-code--start` to automatically start MCP server
-- Set `CLAUDE_CODE_SSE_PORT` and `ENABLE_IDE_INTEGRATION=true` environment variables
-- Store MCP session in buffer-local variable
-- Add cleanup in `claude-code--kill-buffer`
+### Step 1.1: Wire up MCP server to claude-code.el [COMPLETE]
+- ✅ Added `claude-code-enable-ide-integration` customization variable
+- ✅ Modified `claude-code--start` to automatically start MCP server when integration is enabled
+- ✅ Set `CLAUDE_CODE_SSE_PORT` and `ENABLE_IDE_INTEGRATION=true` environment variables
+- ✅ Store MCP session in buffer-local variable `claude-code--mcp-session`
+- ✅ Added cleanup in `claude-code--kill-buffer` via `claude-code-mcp--cleanup-session`
 
 ### Step 1.2: Implement first real tool - getCurrentSelection
 - Returns current selection or cursor position
