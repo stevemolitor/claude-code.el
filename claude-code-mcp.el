@@ -291,6 +291,23 @@ in Emacs to connect to an claude process running outside Emacs." )
      (description . "Get the current text selection or cursor position in the active editor")
      (inputSchema . ((type . "object")
                      (properties . ()))))
+   `((name . "openFile")
+     (description . "Open a file in the editor and optionally select a range of text")
+     (inputSchema . ((type . "object")
+                     (properties . ((uri . ((type . "string")
+                                            (description . "The file URI or path to open")))
+                                    (selection . ((type . "object")
+                                                  (description . "Optional selection range")
+                                                  (properties . ((start . ((type . "object")
+                                                                           (properties . ((line . ((type . "integer")))
+                                                                                          (character . ((type . "integer")))))
+                                                                           (required . ["line" "character"])))
+                                                                 (end . ((type . "object")
+                                                                         (properties . ((line . ((type . "integer")))
+                                                                                        (character . ((type . "integer")))))
+                                                                         (required . ["line" "character"]))))
+                                                  (required . ["start" "end"])))))
+                     (required . ["uri"]))))
    ;; Stub tools to prevent crashes
    `((name . "openDiff")
      (description . "Open a diff view")
@@ -318,6 +335,7 @@ in Emacs to connect to an claude process running outside Emacs." )
   "Get the handler function for tool NAME."
   (pcase name
     ("getCurrentSelection" #'claude-code-mcp--tool-get-current-selection)
+    ("openFile" #'claude-code-mcp--tool-open-file)
     ("openDiff" #'claude-code-mcp--tool-open-diff)
     ("close_tab" #'claude-code-mcp--tool-close-tab)
     ("getDiagnostics" #'claude-code-mcp--tool-get-diagnostics)
@@ -338,6 +356,55 @@ _PARAMS is unused for this tool."
                                              (selection . ((start . ((line . 0) (character . 0)))
                                                            (end . ((line . 0) (character . 0)))
                                                            (isEmpty . t)))))))])))))
+
+(defun claude-code-mcp--tool-open-file (params)
+  "Implementation of openFile tool.
+PARAMS contains uri and optionally selection with start/end positions."
+  (condition-case err
+      (let* ((uri (alist-get 'uri params))
+             (selection (alist-get 'selection params))
+             ;; Handle file:// URIs
+             (file-path (if (string-prefix-p "file://" uri)
+                            (substring uri 7)
+                          uri)))
+        ;; Expand and normalize the file path
+        (setq file-path (expand-file-name file-path))
+        
+        ;; Check if file exists
+        (unless (file-exists-p file-path)
+          (error "File not found: %s" file-path))
+        
+        ;; Open the file
+        (find-file file-path)
+        
+        ;; Handle optional selection
+        (when selection
+          (let* ((start (alist-get 'start selection))
+                 (end (alist-get 'end selection))
+                 (start-line (1+ (alist-get 'line start))) ; Convert from 0-based to 1-based
+                 (start-char (alist-get 'character start))
+                 (end-line (1+ (alist-get 'line end)))
+                 (end-char (alist-get 'character end)))
+            ;; Go to start position
+            (goto-char (point-min))
+            (forward-line (1- start-line))
+            (forward-char start-char)
+            (let ((start-pos (point)))
+              ;; Go to end position
+              (goto-char (point-min))
+              (forward-line (1- end-line))
+              (forward-char end-char)
+              (let ((end-pos (point)))
+                ;; Select the region
+                (goto-char start-pos)
+                (push-mark end-pos t t)))))
+        
+        ;; Return success with file information
+        `((content . [((type . "text") 
+                       (text . ,(format "Opened file: %s" file-path)))])))
+    (error
+     `((content . [((type . "text") 
+                    (text . ,(format "Error opening file: %s" (error-message-string err))))])))))
 
 ;; Stub tool implementations
 (defun claude-code-mcp--tool-open-diff (params)
