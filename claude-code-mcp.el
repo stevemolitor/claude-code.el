@@ -8,6 +8,8 @@
 ;;; Require dependencies
 (require 'json)
 (require 'cl-lib)
+(require 'subr-x) ; For when-let*
+(require 'project) ; For project-current and project-root
 
 ;; Declare external functions and variables from websocket.el
 (declare-function websocket-server "websocket" (port &rest args))
@@ -328,6 +330,14 @@ in Emacs to connect to an claude process running outside Emacs." )
    `((name . "closeAllDiffTabs")
      (description . "Close all diff tabs")
      (inputSchema . ((type . "object")
+                     (properties . ()))))
+   `((name . "getOpenEditors")
+     (description . "Get the list of currently open files in the editor")
+     (inputSchema . ((type . "object")
+                     (properties . ()))))
+   `((name . "getWorkspaceFolders")
+     (description . "Get the list of workspace folders (project directories)")
+     (inputSchema . ((type . "object")
                      (properties . ()))))))
 
 (defun claude-code-mcp--get-tool-handler (name)
@@ -339,6 +349,8 @@ in Emacs to connect to an claude process running outside Emacs." )
     ("close_tab" #'claude-code-mcp--tool-close-tab)
     ("getDiagnostics" #'claude-code-mcp--tool-get-diagnostics)
     ("closeAllDiffTabs" #'claude-code-mcp--tool-close-all-diff-tabs)
+    ("getOpenEditors" #'claude-code-mcp--tool-get-open-editors)
+    ("getWorkspaceFolders" #'claude-code-mcp--tool-get-workspace-folders)
     (_ nil)))
 
 ;; Real tool implementations
@@ -434,6 +446,54 @@ PARAMS is empty."
   (list (cons 'content
               (vector (list (cons 'type "text")
                             (cons 'text "All diff tabs closed (stub)"))))))
+
+;; Real tool implementations for IDE features
+(defun claude-code-mcp--tool-get-open-editors (_params)
+  "Implementation of getOpenEditors tool.
+_PARAMS is unused for this tool."
+  (let ((editors '()))
+    ;; Collect all file-visiting buffers
+    (dolist (buffer (buffer-list))
+      (when-let* ((file (buffer-file-name buffer)))
+        (push (list (cons 'uri (concat "file://" file))
+                    (cons 'name (file-name-nondirectory file))
+                    (cons 'path file))
+              editors)))
+    ;; Return the list of open editors
+    (list (cons 'content
+                (vector (list (cons 'type "text")
+                              (cons 'text (json-encode (list (cons 'editors (vconcat (nreverse editors))))))))))))
+
+(defun claude-code-mcp--tool-get-workspace-folders (_params)
+  "Implementation of getWorkspaceFolders tool.
+_PARAMS is unused for this tool."
+  (let ((folders '())
+        (seen-dirs (make-hash-table :test 'equal)))
+    ;; First, add current project if available
+    (when-let* ((project (project-current)))
+      (let ((root (project-root project)))
+        (unless (gethash root seen-dirs)
+          (puthash root t seen-dirs)
+          (push (list (cons 'uri (concat "file://" root))
+                      (cons 'name (file-name-nondirectory (directory-file-name root))))
+                folders))))
+    ;; Then add unique directories from all file-visiting buffers
+    (dolist (buffer (buffer-list))
+      (when-let* ((file (buffer-file-name buffer))
+                  (dir (file-name-directory file)))
+        ;; Find the project root for this file
+        (let ((project-root (or (when-let ((proj (project-current nil dir)))
+                                  (project-root proj))
+                                dir)))
+          (unless (gethash project-root seen-dirs)
+            (puthash project-root t seen-dirs)
+            (push (list (cons 'uri (concat "file://" project-root))
+                        (cons 'name (file-name-nondirectory (directory-file-name project-root))))
+                  folders)))))
+    ;; Return the list of workspace folders
+    (list (cons 'content
+                (vector (list (cons 'type "text")
+                              (cons 'text (json-encode (list (cons 'folders (vconcat (nreverse folders))))))))))))
 
 ;;; Websocket server management functions
 ;; NOTE: Authentication validation limitation
