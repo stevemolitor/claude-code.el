@@ -28,10 +28,12 @@ These prevent Claude from crashing when it tries to use them.
 - ✅ Store MCP session in buffer-local variable `claude-code--mcp-session`
 - ✅ Added cleanup in `claude-code--kill-buffer` via `claude-code-mcp--cleanup-session`
 
-### Step 1.2: Implement first real tool - getCurrentSelection
-- Returns current selection or cursor position
-- Simple to implement, good for testing the pipeline
-- Verifies tool dispatch and response formatting works
+### Step 1.2: Implement first real tool - getCurrentSelection [COMPLETE]
+- ✅ Added getCurrentSelection to tools list
+- ✅ Added handler mapping in claude-code-mcp--get-tool-handler
+- ✅ Implemented claude-code-mcp--tool-get-current-selection
+- ✅ Returns current selection data or empty selection if no file open
+- ✅ Uses existing claude-code-mcp--get-selection function
 
 ### Step 1.3: Test with Claude
 - Launch Claude with integration enabled
