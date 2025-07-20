@@ -20,6 +20,20 @@
 ;; Try to load websocket if available
 (require 'websocket nil t)
 
+;; Declare external functions from flymake
+(declare-function flymake-diagnostics "flymake" (&optional beg end))
+(declare-function flymake-diagnostic-beg "flymake" (diag))
+(declare-function flymake-diagnostic-end "flymake" (diag))
+(declare-function flymake-diagnostic-type "flymake" (diag))
+(declare-function flymake-diagnostic-text "flymake" (diag))
+
+;; Declare external functions from flycheck
+(declare-function flycheck-error-line "flycheck" (err))
+(declare-function flycheck-error-column "flycheck" (err))
+(declare-function flycheck-error-level "flycheck" (err))
+(declare-function flycheck-error-message "flycheck" (err))
+(declare-function flycheck-error-checker "flycheck" (err))
+
 ;;; Session structure
 (cl-defstruct claude-code-mcp--session
   "MCP session for a Claude instance."
@@ -50,14 +64,14 @@
 
 ;;; Logging functions
 (defun claude-code-mcp--get-log-buffer ()
-  "Get or create the MCP log buffer."
+  "Return the MCP log buffer, creating it if necessary."
   (get-buffer-create claude-code-mcp-log-buffer-name))
 
 (defun claude-code-mcp--log (direction type data &optional json-string)
   "Log MCP message to buffer.
 
-DIRECTION is either 'in' or 'out'.
-TYPE is a descriptive string like 'request' or 'response'.
+DIRECTION is either `in' or `out'.
+TYPE is a descriptive string like `request' or `response'.
 DATA is the elisp data structure.
 JSON-STRING is the actual JSON string if available."
   (when claude-code-mcp-enable-logging
@@ -241,7 +255,7 @@ in Emacs to connect to an claude process running outside Emacs." )
                                    nil))))))))
 
 ;;; Handlers
-(defun claude-code-mcp--handle-initialize (session ws id params)
+(defun claude-code-mcp--handle-initialize (session ws id _params)
   "Handle initialize request with ID and PARAMS from WS for SESSION."
   (when-let ((client (claude-code-mcp--session-client session)))
     ;; Send initialize response
@@ -261,7 +275,7 @@ in Emacs to connect to an claude process running outside Emacs." )
                           `((key . ,(claude-code-mcp--session-key session))
                             (port . ,(claude-code-mcp--session-port session)))
                           nil)
-    
+
     ;; Send tools/list_changed notification after a delay [TODO] do we need the delay?
     (run-with-timer claude-code-mcp--initial-notification-delay nil
                     (lambda ()
@@ -271,10 +285,10 @@ in Emacs to connect to an claude process running outside Emacs." )
                          "notifications/tools/list_changed"
                          (make-hash-table :test 'equal)))))))
 
-(defun claude-code-mcp--handle-tools-list (_session ws id params)
+(defun claude-code-mcp--handle-tools-list (_session ws id _params)
   "Handle tools/list request with ID and PARAMS from WS for SESSION."
-  (claude-code-mcp--send-response 
-   ws id 
+  (claude-code-mcp--send-response
+   ws id
    `((tools . ,(claude-code-mcp--get-tools-list)))))
 
 (defun claude-code-mcp--handle-tools-call (_session ws id params)
@@ -287,16 +301,16 @@ in Emacs to connect to an claude process running outside Emacs." )
             (let ((result (funcall handler arguments)))
               (claude-code-mcp--send-response ws id result))
           (error
-           (claude-code-mcp--send-error 
-            ws id -32603 
+           (claude-code-mcp--send-error
+            ws id -32603
             (format "Error in tool %s: %s" tool-name (error-message-string err)))))
-      (claude-code-mcp--send-error 
-       ws id -32601 
+      (claude-code-mcp--send-error
+       ws id -32601
        (format "Tool not found: %s" tool-name)))))
 
 ;;; MCP Tools
 (defun claude-code-mcp--get-tools-list ()
-  "Get the list of available MCP tools."
+  "Return the list of available MCP tools."
   (vector
    ;; Real tools
    `((name . "getCurrentSelection")
@@ -318,7 +332,7 @@ in Emacs to connect to an claude process running outside Emacs." )
                                     (new_file_contents . ((type . "string")))
                                     (tab_name . ((type . "string")))))
                      (required . ,(vector "old_file_path" "new_file_path" "new_file_contents")))))
-   `((name . "close_tab") 
+   `((name . "close_tab")
      (description . "Close a tab")
      (inputSchema . ((type . "object")
                      (properties . ((tab_name . ((type . "string")))))
@@ -341,7 +355,7 @@ in Emacs to connect to an claude process running outside Emacs." )
                      (properties . ()))))))
 
 (defun claude-code-mcp--get-tool-handler (name)
-  "Get the handler function for tool NAME."
+  "Return the handler function for tool NAME."
   (pcase name
     ("getCurrentSelection" #'claude-code-mcp--tool-get-current-selection)
     ("openFile" #'claude-code-mcp--tool-open-file)
@@ -381,17 +395,17 @@ PARAMS contains uri."
                           uri)))
         ;; Expand and normalize the file path
         (setq file-path (expand-file-name file-path))
-        
+
         ;; Check if file exists
         (unless (file-exists-p file-path)
           (error "File not found: %s" file-path))
-        
+
         ;; Open the file and switch to its buffer
         (find-file file-path)
-        
+
         ;; Make sure the buffer is displayed in a window
         (switch-to-buffer (current-buffer))
-        
+
         ;; Return success with file information
         (list (cons 'content
                     (vector (list (cons 'type "text")
@@ -423,7 +437,7 @@ PARAMS contains old_file_path, new_file_path, new_file_contents, tab_name."
                   (vector (list (cons 'type "text")
                                 (cons 'text "Diff view opened (stub)"))))))))
 
-(defun claude-code-mcp--tool-close-tab (params)
+(defun claude-code-mcp--tool-close-tab (_params)
   "Stub implementation of close_tab tool.
 PARAMS contains tab_name."
   ;; Just return success without actually closing anything
@@ -432,14 +446,79 @@ PARAMS contains tab_name."
                             (cons 'text "Tab closed (stub)"))))))
 
 (defun claude-code-mcp--tool-get-diagnostics (params)
-  "Stub implementation of getDiagnostics tool.
+  "Implementation of getDiagnostics tool.
 PARAMS contains optional uri."
-  ;; Return empty diagnostics array
-  (list (cons 'content
-              (vector (list (cons 'type "text")
-                            (cons 'text (json-encode '((diagnostics . [])))))))))
+  (let* ((uri (alist-get 'uri params))
+         (file-path (when uri
+                     (if (string-prefix-p "file://" uri)
+                         (substring uri 7)
+                       uri)))
+         (diagnostics '()))
+    ;; Get diagnostics for the specified file or all open files
+    (dolist (buffer (buffer-list))
+      (when (and (buffer-file-name buffer)
+                 (or (null file-path)
+                     (string= file-path (buffer-file-name buffer))))
+        (with-current-buffer buffer
+          ;; Check flymake if available
+          (when (bound-and-true-p flymake-mode)
+            (dolist (diag (flymake-diagnostics))
+              (let* ((beg (flymake-diagnostic-beg diag))
+                     (end (flymake-diagnostic-end diag))
+                     (type (flymake-diagnostic-type diag))
+                     (text (flymake-diagnostic-text diag))
+                     (severity (cond
+                               ((eq type :error) 1)     ; Error
+                               ((eq type :warning) 2)   ; Warning
+                               ((eq type :note) 3)      ; Information
+                               (t 4)))                  ; Hint
+                     (start-line (1- (line-number-at-pos beg)))
+                     (start-char (save-excursion
+                                  (goto-char beg)
+                                  (current-column)))
+                     (end-line (1- (line-number-at-pos end)))
+                     (end-char (save-excursion
+                                (goto-char end)
+                                (current-column))))
+                (push (list (cons 'uri (concat "file://" (buffer-file-name)))
+                           (cons 'range (list (cons 'start (list (cons 'line start-line)
+                                                               (cons 'character start-char)))
+                                            (cons 'end (list (cons 'line end-line)
+                                                           (cons 'character end-char)))))
+                           (cons 'severity severity)
+                           (cons 'message text)
+                           (cons 'source "flymake"))
+                      diagnostics))))
+          ;; Check flycheck if available
+          (when (and (bound-and-true-p flycheck-mode)
+                     (boundp 'flycheck-current-errors)
+                     flycheck-current-errors)
+            (dolist (err flycheck-current-errors)
+              (let* ((line (1- (or (flycheck-error-line err) 1)))
+                     (col (or (flycheck-error-column err) 0))
+                     (level (flycheck-error-level err))
+                     (msg (flycheck-error-message err))
+                     (checker (symbol-name (flycheck-error-checker err)))
+                     (severity (cond
+                               ((eq level 'error) 1)
+                               ((eq level 'warning) 2)
+                               ((eq level 'info) 3)
+                               (t 4))))
+                (push (list (cons 'uri (concat "file://" (buffer-file-name)))
+                           (cons 'range (list (cons 'start (list (cons 'line line)
+                                                               (cons 'character col)))
+                                            (cons 'end (list (cons 'line line)
+                                                           (cons 'character col)))))
+                           (cons 'severity severity)
+                           (cons 'message msg)
+                           (cons 'source checker))
+                      diagnostics)))))))
+    ;; Return the diagnostics
+    (list (cons 'content
+                (vector (list (cons 'type "text")
+                              (cons 'text (json-encode (list (cons 'diagnostics (vconcat (nreverse diagnostics))))))))))))
 
-(defun claude-code-mcp--tool-close-all-diff-tabs (params)
+(defun claude-code-mcp--tool-close-all-diff-tabs (_params)
   "Stub implementation of closeAllDiffTabs tool.
 PARAMS is empty."
   ;; Just return success
@@ -514,7 +593,7 @@ claude later."
                         nil)
   (message "Claude Code connected to MCP server on port %d" (claude-code-mcp--session-port session)))
 
-(defun claude-code-mcp--on-close-server (session ws)
+(defun claude-code-mcp--on-close-server (session _ws)
   "Handle WebSocket WS close for SESSION.
 
 Remove SESSION from `claude-code-mcp--sessions'."
@@ -536,7 +615,7 @@ Remove SESSION from `claude-code-mcp--sessions'."
       (setq claude-code-mcp--selection-timer nil))
     (message "server running on port %d closed" port)))
 
-(defun claude-code-mcp--on-error-server (session ws action error)
+(defun claude-code-mcp--on-error-server (session _ws action error)
   "Handle WebSocket error for SESSION with WS during ACTION with ERROR."
   (claude-code-mcp--log 'in 'websocket-error
                         `((action . ,action)
@@ -566,7 +645,7 @@ Remove SESSION from `claude-code-mcp--sessions'."
              (params (alist-get 'params message)))
         ;; Log incoming message
         (claude-code-mcp--log 'in (if method 'request 'response) message payload)
-        
+
         (pcase method
           ;; Protocol initialization
           ("initialize"
@@ -598,8 +677,8 @@ Returns the session object."
     ;;   (error "Websocket server already started for key %s" key)
   (let* ((port (claude-code-mcp--find-free-port))
          (auth-token (claude-code-mcp--generate-uuid))
-         (session (make-claude-code-mcp--session 
-                   :key key 
+         (session (make-claude-code-mcp--session
+                   :key key
                    :port port
                    :initialized nil
                    :auth-token auth-token)))
@@ -638,7 +717,7 @@ Returns the session object."
 ;;; Selection
 ;;;; Selection functions
 (defun claude-code-mcp--get-selection ()
-  "Get current selection information."
+  "Return current selection information."
   (when buffer-file-name
     (let* ((file-path buffer-file-name)
            (point-pos (point))
@@ -670,7 +749,7 @@ Returns the session object."
 
 ;;;; Selection global hooks
 (defun claude-code-mcp--track-selection-change ()
-  "Track selection changes in file buffers."
+  "Track selection change in file buffers."
   (when (and buffer-file-name
              ;; Only track if we have initialized sessions
              (cl-some (lambda (session)
@@ -709,6 +788,7 @@ Returns the session object."
 
 ;;; Hooks
 (defun claude-code-mcp-register-hooks ()
+  "Register hooks for MCP functionality."
   (add-hook 'post-command-hook #'claude-code-mcp--track-selection-change))
 
 ;;; Interactive functions for testing
@@ -755,7 +835,7 @@ Returns the session object."
   "Stop all running MCP websocket servers."
   (interactive)
   (let ((count 0))
-    (maphash (lambda (key session)
+    (maphash (lambda (_key session)
                (when-let ((server (claude-code-mcp--session-server session))
                           (port (claude-code-mcp--session-port session)))
                  ;; Remove lockfile before closing server
@@ -777,8 +857,8 @@ Returns the session object."
                       (directory-files dir t "\\.lock$")))
          (cleaned 0))
     (dolist (lockfile lockfiles)
-      (let* ((port (string-to-number 
-                    (file-name-sans-extension 
+      (let* ((port (string-to-number
+                    (file-name-sans-extension
                      (file-name-nondirectory lockfile))))
              (in-use (cl-some (lambda (session)
                                 (= (claude-code-mcp--session-port session) port))
