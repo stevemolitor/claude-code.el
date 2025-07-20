@@ -685,16 +685,8 @@ SWITCHES are optional command-line arguments for PROGRAM."
   (let* ((vterm-shell (if switches
                           (concat program " " (mapconcat #'identity switches " "))
                         program))
-         (buffer (get-buffer-create buffer-name))
-         ;; Set environment variable to enable IDE intgration
-         (vterm-environment (if claude-code-ide-integration-p
-                                (cons "ENABLE_IDE_INTEGRATION=1" vterm-environment)
-                              vterm-environment)))
+         (buffer (get-buffer-create buffer-name)))
     (with-current-buffer buffer
-      ;; Add hooks and start MCP websocket server if IDE integration is enabled
-      (when claude-code-ide-integration-p
-        (claude-code-mcp-start-websocket-server)
-        (claude-code-mcp-register-hooks))
       
       ;; vterm needs to have an open window before starting the claude
       ;; process; otherwise Claude doesn't seem to know how wide its
