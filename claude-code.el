@@ -1397,8 +1397,9 @@ indicate cursor positioning and line clearing operations.
 ORIG-FUN is the original vterm--filter function.
 PROCESS is the vterm process.
 INPUT is the terminal output string."
-  (if (not claude-code-vterm-buffer-multiline-output)
-      ;; Feature disabled, pass through normally
+  (if (or (not claude-code-vterm-buffer-multiline-output)
+          (not (claude-code--buffer-p (process-buffer process))))
+      ;; Feature disabled or not a Claude buffer, pass through normally
       (funcall orig-fun process input)
     (with-current-buffer (process-buffer process)
       ;; Check if this looks like multi-line input box redraw
