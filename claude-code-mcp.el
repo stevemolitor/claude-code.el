@@ -21,18 +21,6 @@
 ;; Try to load websocket if available
 (require 'websocket nil t)
 
-;; Declare external functions from ediff
-(declare-function ediff-buffers "ediff" (buffer-A buffer-B &optional startup-hooks job-name))
-(declare-function ediff-really-quit "ediff-util" (reverse-default-keep-variants))
-(declare-function ediff-setup-windows-plain "ediff-wind" (buffer-A buffer-B buffer-C control-buffer))
-(declare-function ediff-jump-to-difference "ediff-util" (n &optional no-recenter))
-(defvar ediff-control-buffer)
-(defvar ediff-window-setup-function)
-(defvar ediff-split-window-function)
-(defvar ediff-quit-hook)
-(defvar ediff-window-A)
-(defvar ediff-window-B)
-(defvar ediff-number-of-differences)
 
 ;; Declare external functions from flymake
 (declare-function flymake-diagnostics "flymake" (&optional beg end))
@@ -359,43 +347,6 @@ Searches all sessions for the deferred response."
        (format "Tool not found: %s" tool-name)))))
 
 ;;; diff Helper Functions
-(defun claude-code-mcp--create-diff-buffers (old-path new-contents tab-name)
-  "Create buffers for diff comparison.
-OLD-PATH is the path to the original file.
-NEW-CONTENTS is the new file contents to compare.
-TAB-NAME is the name for the diff tab.
-Returns a cons cell (buffer-A . buffer-B)."
-  ;; Validate inputs
-  (unless old-path
-    (error "old-path cannot be nil"))
-  (unless tab-name
-    (error "tab-name cannot be nil"))
-  
-  (let* ((file-exists (file-exists-p old-path))
-         (buffer-A (if file-exists
-                       (find-file-noselect old-path)
-                     ;; New file - create empty buffer
-                     (let* ((filename (file-name-nondirectory old-path))
-                            (buf (generate-new-buffer
-                                  (format "*New file: %s*"
-                                          (if (string= filename "")
-                                              "untitled"
-                                            filename)))))
-                       (with-current-buffer buf
-                         (setq buffer-file-name old-path))
-                       buf)))
-         (buffer-B (generate-new-buffer (format "*%s*" tab-name))))
-
-    ;; Set up buffer B with new contents
-    (with-current-buffer buffer-B
-      (when new-contents
-        (insert new-contents))
-      ;; Set the major mode based on the file extension
-      (when old-path
-        (let ((mode (assoc-default old-path auto-mode-alist 'string-match)))
-          (when mode (funcall mode)))))
-
-    (cons buffer-A buffer-B)))
 
 (defun claude-code-mcp--find-claude-window ()
   "Find the window displaying a Claude buffer.
@@ -409,126 +360,6 @@ Returns the window if found, nil otherwise."
           (throw 'found window))))
     nil))
 
-(defun claude-code-mcp--setup-ediff-with-claude (buffer-A buffer-B &optional _buffer-C control-buffer)
-  "Set up ediff windows while preserving Claude window.
-BUFFER-A and BUFFER-B are the buffers to compare.
-BUFFER-C is optional and unused.
-CONTROL-BUFFER is the ediff control buffer that must be displayed."
-  (condition-case err
-      (let ((claude-window (claude-code-mcp--find-claude-window)))
-        (if claude-window
-            ;; Claude is visible - arrange windows to preserve it
-            (let* ((is-side-window (window-parameter claude-window 'window-side))
-                   (claude-side (if is-side-window
-                                    (window-parameter claude-window 'window-side)
-                                  (if (< (car (window-edges claude-window))
-                                         (/ (frame-width) 2))
-                                      'left
-                                    'right))))
-              ;; First, ensure we're not in a side window
-              ;; Find a non-side window to work from
-              (let ((work-window (cl-find-if-not
-                                  (lambda (w) 
-                                    (window-parameter w 'window-side))
-                                  (window-list))))
-                (unless work-window
-                  ;; No non-side windows exist - create one by splitting root
-                  ;; We must use the root window and explicit side parameter
-                  (setq work-window (split-window (frame-root-window) nil 
-                                                  (if (eq claude-side 'left)
-                                                      'right
-                                                    'left))))
-                
-                ;; Now select the work window before doing anything else
-                (select-window work-window)
-                
-                ;; Delete all other non-side windows
-                (dolist (window (window-list))
-                  (unless (or (eq window claude-window)
-                              (eq window work-window)
-                              (window-parameter window 'window-side))
-                    (ignore-errors (delete-window window))))
-                
-                ;; Now set up ediff in the work window
-                (switch-to-buffer buffer-A)
-                (let ((window-B (split-window work-window nil 'below)))
-                  (set-window-buffer window-B buffer-B)
-                  (setq ediff-window-A work-window
-                        ediff-window-B window-B)
-                  
-                  ;; IMPORTANT: Handle the control buffer
-                  (when control-buffer
-                    ;; Create a small window for the control buffer
-                    (let ((control-window (split-window window-B -4 'below)))
-                      (set-window-buffer control-window control-buffer)
-                      (set-window-dedicated-p control-window t)
-                      ;; Store the control window in a variable that ediff expects
-                      (with-current-buffer control-buffer
-                        (setq ediff-control-window control-window)))))))
-          
-          ;; No Claude window visible - use simple setup
-          ;; First ensure we're not in a side window
-          (let ((non-side-window (cl-find-if-not 
-                                  (lambda (w) 
-                                    (window-parameter w 'window-side))
-                                  (window-list))))
-            (when non-side-window
-              (select-window non-side-window))
-            (delete-other-windows)
-            (switch-to-buffer buffer-A)
-            (let ((window-B (split-window nil nil 'below)))
-              (set-window-buffer window-B buffer-B)
-              (setq ediff-window-A (selected-window)
-                    ediff-window-B window-B)
-              
-              ;; Handle control buffer
-              (when control-buffer
-                (let ((control-window (split-window window-B -4 'below)))
-                  (set-window-buffer control-window control-buffer)
-                  (set-window-dedicated-p control-window t)
-                  (with-current-buffer control-buffer
-                    (setq ediff-control-window control-window))))))))
-    (error
-     ;; Fallback - ensure we're in a non-side window first
-     (message "Error in custom window setup: %s. Using simple setup." 
-              (error-message-string err))
-     (let ((non-side-window (cl-find-if-not 
-                             (lambda (w) 
-                               (window-parameter w 'window-side))
-                             (window-list))))
-       (if non-side-window
-           (progn
-             (select-window non-side-window)
-             (delete-other-windows)
-             (switch-to-buffer buffer-A)
-             (let ((window-B (split-window nil nil 'below)))
-               (set-window-buffer window-B buffer-B)
-               (setq ediff-window-A (selected-window)
-                     ediff-window-B window-B)
-               
-               ;; Handle control buffer in fallback
-               (when control-buffer
-                 (let ((control-window (split-window window-B -4 'below)))
-                   (set-window-buffer control-window control-buffer)
-                   (set-window-dedicated-p control-window t)
-                   (with-current-buffer control-buffer
-                     (setq ediff-control-window control-window))))))
-         ;; Last resort - create a new frame
-         (let ((new-frame (make-frame)))
-           (select-frame new-frame)
-           (switch-to-buffer buffer-A)
-           (let ((window-B (split-window nil nil 'below)))
-             (set-window-buffer window-B buffer-B)
-             (setq ediff-window-A (selected-window)
-                   ediff-window-B window-B)
-             
-             ;; Handle control buffer in new frame
-             (when control-buffer
-               (let ((control-window (split-window window-B -4 'below)))
-                 (set-window-buffer control-window control-buffer)
-                 (set-window-dedicated-p control-window t)
-                 (with-current-buffer control-buffer
-                   (setq ediff-control-window control-window)))))))))))
 
 (defun claude-code-mcp--handle-diff-response (tab-name session)
   "Handle user response to diff for TAB-NAME in SESSION."
@@ -579,45 +410,6 @@ CONTROL-BUFFER is the ediff control buffer that must be displayed."
            `(lambda ()
               (claude-code-mcp--handle-diff-response ',tab-name ',session))))))))
 
-(defun claude-code-mcp--handle-ediff-quit (tab-name session saved-winconf)
-  "Handle ediff quit for TAB-NAME with SESSION and SAVED-WINCONF."
-  (let* ((opened-diffs (claude-code-mcp--session-opened-diffs session))
-         (diff-info (gethash tab-name opened-diffs)))
-    (when diff-info
-      (let* ((buffer-B (alist-get 'buffer-B diff-info))
-             (accept-changes (y-or-n-p "Accept the changes? "))
-             ;; Get the final content before buffer is killed
-             (final-content (when (and accept-changes buffer-B (buffer-live-p buffer-B))
-                             (with-current-buffer buffer-B
-                               (buffer-string)))))
-
-        ;; Restore window configuration
-        (when saved-winconf
-          (condition-case nil
-              (set-window-configuration saved-winconf)
-            (error nil)))
-
-        ;; Send deferred response
-        (run-with-idle-timer
-         0.1 nil
-         `(lambda ()
-            (if ',accept-changes
-                ;; User accepted changes
-                (claude-code-mcp--complete-deferred-response
-                 ',tab-name
-                 (list (cons 'content
-                             (vector (list (cons 'type "text")
-                                           (cons 'text "FILE_SAVED"))
-                                     (list (cons 'type "text")
-                                           (cons 'text ',final-content))))))
-              ;; User rejected changes
-              (claude-code-mcp--complete-deferred-response
-               ',tab-name
-               (list (cons 'content
-                           (vector (list (cons 'type "text")
-                                         (cons 'text "DIFF_REJECTED")))))))
-            ;; Clean up the diff
-            (claude-code-mcp--cleanup-diff ',tab-name ',session)))))))
 
 (defun claude-code-mcp--cleanup-diff (tab-name session)
   "Clean up diff session for TAB-NAME in SESSION."
@@ -625,12 +417,7 @@ CONTROL-BUFFER is the ediff control buffer that must be displayed."
     (when-let ((diff-info (gethash tab-name opened-diffs)))
       (let ((old-temp-buffer (alist-get 'old-temp-buffer diff-info))
             (new-temp-buffer (alist-get 'new-temp-buffer diff-info))
-            (diff-buffer (alist-get 'diff-buffer diff-info))
-            ;; Also support old ediff format
-            (buffer-B (alist-get 'buffer-B diff-info))
-            (buffer-A (alist-get 'buffer-A diff-info))
-            (file-exists (alist-get 'file-exists diff-info))
-            (control-buf (alist-get 'control-buffer diff-info)))
+            (diff-buffer (alist-get 'diff-buffer diff-info)))
         
         ;; Clean up diff-no-select buffers
         (when (and old-temp-buffer (buffer-live-p old-temp-buffer))
@@ -642,15 +429,6 @@ CONTROL-BUFFER is the ediff control buffer that must be displayed."
             (when win (delete-window win)))
           (kill-buffer diff-buffer))
         
-        ;; Clean up old ediff buffers if they exist
-        (when (and control-buf (buffer-live-p control-buf))
-          (with-current-buffer control-buf
-            (setq ediff-quit-hook nil))
-          (kill-buffer control-buf))
-        (when (and buffer-B (buffer-live-p buffer-B))
-          (kill-buffer buffer-B))
-        (when (and buffer-A (not file-exists) (buffer-live-p buffer-A))
-          (kill-buffer buffer-A))
         
         ;; Remove from opened diffs
         (remhash tab-name opened-diffs)))))
@@ -893,14 +671,6 @@ SESSION is the MCP session for tracking opened diffs."
         (if diff-info
             ;; It's a diff tab - handle appropriately
             (progn
-              ;; Check if ediff is still active
-              (when-let ((control-buf (alist-get 'control-buffer diff-info)))
-                (when (buffer-live-p control-buf)
-                  ;; Quit ediff properly
-                  (if (fboundp 'ediff-really-quit)
-                      (with-current-buffer control-buf
-                        (ediff-really-quit nil))
-                    (kill-buffer control-buf))))
               ;; Clean up the diff
               (claude-code-mcp--cleanup-diff tab-name session)
               (claude-code-mcp--log 'out 'close-diff-tab-success
