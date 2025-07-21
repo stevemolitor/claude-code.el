@@ -1375,7 +1375,7 @@ ORIG-FUN is the original vterm--filter function.
 PROCESS is the vterm process.
 INPUT is the terminal output string."
   (when (and (string-match-p "\007" input)
-             (buffer-local-value 'claude-code-mode (process-buffer process))
+             (claude-code--buffer-p (process-buffer process))
              ;; Ignore bells in OSC sequences (terminal title updates)
              (not (string-match-p "]0;.*\007" input)))
     (claude-code--notify nil))
