@@ -1469,12 +1469,15 @@ ARGS is passed to ORIG-FUN unchanged."
                 (setq width-changed t)
                 ;; Update stored width
                 (puthash window current-width claude-code--window-widths))))))
-      ;; Return result only if a Claude window width changed and
-      ;; we're not in read-only mode. otherwise nil. Nil means do
-      ;; not send a window size changed event to the Claude process.
-      (if (and width-changed (not (claude-code--term-in-read-only-p claude-code-terminal-backend)))
+      ;; If current buffer is not a Claude buffer, just pass through normally
+      (if (not (claude-code--buffer-p (current-buffer)))
           result
-        nil))))
+        ;; For Claude buffers: Return result only if a Claude window width changed and
+        ;; we're not in read-only mode. otherwise nil. Nil means do
+        ;; not send a window size changed event to the Claude process.
+        (if (and width-changed (not (claude-code--term-in-read-only-p claude-code-terminal-backend)))
+            result
+          nil)))))
 
 ;;;; Interactive Commands
 ;;;###autoload
