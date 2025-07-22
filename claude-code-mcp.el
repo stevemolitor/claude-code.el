@@ -590,12 +590,20 @@ SESSION is the MCP session for this request."
         (if file-exists
             (insert-file-contents old-path)
           ;; New file - leave empty
-          (insert "")))
+          (insert ""))
+        ;; Set buffer-file-name to help with mode detection
+        (setq-local buffer-file-name old-path)
+        ;; Set the major mode based on the file extension
+        (when old-path
+          (let ((mode (assoc-default old-path auto-mode-alist 'string-match)))
+            (when mode (funcall mode)))))
 
       ;; Fill the new temp buffer
       (with-current-buffer new-temp-buffer
         (when new-contents
           (insert new-contents))
+        ;; Set buffer-file-name to help with mode detection
+        (setq-local buffer-file-name (or new-path old-path))
         ;; Set the major mode based on the file extension
         (when old-path
           (let ((mode (assoc-default old-path auto-mode-alist 'string-match)))
@@ -608,7 +616,13 @@ SESSION is the MCP session for this request."
         ;; Set read-only before diff-mode
         (setq buffer-read-only t)
         ;; Enable diff-mode with syntax highlighting
-        (let ((diff-font-lock-syntax 'hunk-also))
+        (let ((diff-font-lock-syntax 'hunk-also)
+              ;; Add --label switches for proper file identification
+              (diff-switches (append (if (listp diff-switches)
+                                         diff-switches
+                                       (list diff-switches))
+                                     (list (concat "--label=" old-path)
+                                           (concat "--label=" (or new-path old-path))))))
           ;; Create the diff
           (diff-no-select old-temp-buffer new-temp-buffer nil t diff-buffer)))
       
@@ -856,7 +870,7 @@ _SESSION is the MCP session (unused for this tool)."
                                     (cons 'text (json-encode `((folders . ,(vconcat (nreverse folders))))))))))))
 
 (defun claude-code-mcp--tool-check-document-dirty (params _session)
-  "Check if a document has unsaved changes.
+  "Check if a document has unsaved change.
 PARAMS contains uri.
 _SESSION is the MCP session (unused for this tool)."
   (let* ((uri (alist-get 'uri params))
@@ -938,7 +952,7 @@ claude later."
 
 Remove SESSION from `claude-code-mcp--sessions'."
   ;; Add immediate message to track disconnections
-  (message "MCP: WebSocket connection CLOSED on port %d for key %s" 
+  (message "MCP: WebSocket connection CLOSED on port %d for key %s"
            (claude-code-mcp--session-port session)
            (claude-code-mcp--session-key session))
   (let ((key (claude-code-mcp--session-key session))
@@ -962,7 +976,7 @@ Remove SESSION from `claude-code-mcp--sessions'."
 (defun claude-code-mcp--on-error-server (session _ws action error)
   "Handle WebSocket error for SESSION with WS during ACTION with ERROR."
   ;; Add immediate error message
-  (message "MCP ERROR: port %d, action '%s': %s" 
+  (message "MCP ERROR: port %d, action '%s': %s"
            (claude-code-mcp--session-port session)
            action
            (error-message-string error))
