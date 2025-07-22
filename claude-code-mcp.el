@@ -10,17 +10,9 @@
 (require 'cl-lib)
 (require 'subr-x) ; For when-let*
 (require 'project) ; For project-current and project-root
-(require 'diff-mode nil t) ; For diff-no-select
+(require 'diff-mode) ; For diff-no-select
 
-;; Declare external functions and variables from websocket.el
-(declare-function websocket-server "websocket" (port &rest args))
-(declare-function websocket-server-close "websocket" (server))
-(declare-function websocket-send-text "websocket" (websocket text))
-(declare-function websocket-frame-text "websocket" (frame))
-
-;; Try to load websocket if available
-(require 'websocket nil t)
-
+(require 'websocket)
 
 ;; Declare external functions from flymake
 (declare-function flymake-diagnostics "flymake" (&optional beg end))
@@ -61,16 +53,12 @@
   :type 'boolean
   :group 'claude-code)
 
-(defcustom claude-code-mcp-log-buffer-name "*Claude Code MCP Log*"
+(defcustom claude-code-mcp-log-buffer-name "*claude-code mcp log*"
   "Name of the buffer for MCP logging."
   :type 'string
   :group 'claude-code)
 
 ;;; Logging functions
-(defun claude-code-mcp--get-log-buffer ()
-  "Return the MCP log buffer, creating it if necessary."
-  (get-buffer-create claude-code-mcp-log-buffer-name))
-
 (defun claude-code-mcp--log (direction type data &optional json-string)
   "Log MCP message to buffer.
 
@@ -268,21 +256,21 @@ in Emacs to connect to an claude process running outside Emacs." )
 (defun claude-code-mcp--complete-deferred-response (unique-key result)
   "Complete a deferred response for UNIQUE-KEY with RESULT.
 Searches all sessions for the deferred response."
-  (catch 'completed
+  (let ((completed nil))
     (maphash (lambda (_key session)
-               (let* ((deferred-responses (claude-code-mcp--session-deferred-responses session))
-                      (request-id (gethash unique-key deferred-responses)))
-                 (when request-id
-                   ;; Found the deferred response
-                   (let ((client (claude-code-mcp--session-client session)))
-                     (when client
-                       ;; Send the response
-                       (claude-code-mcp--send-response client request-id result)
-                       ;; Remove from deferred responses
-                       (remhash unique-key deferred-responses)
-                       (throw 'completed t))))))
-             claude-code-mcp--sessions)
-    nil))
+               (unless completed
+                 (let* ((deferred-responses (claude-code-mcp--session-deferred-responses session))
+                        (request-id (gethash unique-key deferred-responses)))
+                   (when request-id
+                     ;; Found the deferred response
+                     (let ((client (claude-code-mcp--session-client session)))
+                       (when client
+                         ;; Send the response
+                         (claude-code-mcp--send-response client request-id result)
+                         ;; Remove from deferred responses
+                         (remhash unique-key deferred-responses)
+                         (setq completed t)))))))
+             claude-code-mcp--sessions)))
 
 ;;; Handlers
 (defun claude-code-mcp--handle-initialize (session ws id _params)
