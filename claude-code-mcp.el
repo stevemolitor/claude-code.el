@@ -382,11 +382,11 @@ Returns the window if found, nil otherwise."
                                              (cons 'text "FILE_SAVED"))
                                        (list (cons 'type "text")
                                              (cons 'text final-content))))))
-            ;; User rejected changes
-            (claude-code-mcp--complete-deferred-response
-             tab-name
-             `((content . ,(vector (list (cons 'type "text")
-                                         (cons 'text "DIFF_REJECTED"))))))
+              ;; User rejected changes
+              (claude-code-mcp--complete-deferred-response
+               tab-name
+               `((content . ,(vector (list (cons 'type "text")
+                                           (cons 'text "DIFF_REJECTED")))))))))
 
         ;; If diff buffer is not visible, check again later
         (when (and diff-buffer (buffer-live-p diff-buffer)
@@ -432,7 +432,6 @@ Returns the window if found, nil otherwise."
                      (properties . ((uri . ((type . "string")
                                             (description . "The file URI or path to open")))))
                      (required . ["uri"]))))
-   ;; Stub tools to prevent crashes
    `((name . "openDiff")
      (description . "Open a diff view")
      (inputSchema . ((type . "object")
@@ -445,7 +444,7 @@ Returns the window if found, nil otherwise."
      (description . "Close a tab")
      (inputSchema . ((type . "object")
                      (properties . ((tab_name . ((type . "string")))))
-                     (required . ["tab_name"])))))
+                     (required . ["tab_name"]))))
    `((name . "getDiagnostics")
      (description . "Get diagnostics for a file")
      (inputSchema . ((type . "object")
@@ -489,7 +488,7 @@ _SESSION is the MCP session (unused for this tool)."
                                                (filePath . "")
                                                (selection . ((start . ((line . 0) (character . 0)))
                                                              (end . ((line . 0) (character . 0)))
-                                                             (isEmpty . t)))))))])))))
+                                                             (isEmpty . t)))))))))))))
 
 (defun claude-code-mcp--tool-open-file (params _session)
   "Implementation of openFile tool.
@@ -516,10 +515,10 @@ _SESSION is the MCP session (unused for this tool)."
 
         ;; Return success with file information
         `((content . ,(vector (list (cons 'type "text")
-                                      (cons 'text (format "Opened file: %s" file-path))))))
-        (error
-         `((content . ,(vector (list (cons 'type "text")
-                                       (cons 'text (format "Error opening file: %s" (error-message-string err)))))))))
+                                    (cons 'text (format "Opened file: %s" file-path)))))))
+    (error
+     `((content . ,(vector (list (cons 'type "text")
+                                 (cons 'text (format "Error opening file: %s" (error-message-string err))))))))))
 
 ;; Diff tool implementation using diff-no-select
 (defun claude-code-mcp--tool-open-diff (params session)
