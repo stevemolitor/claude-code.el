@@ -84,6 +84,25 @@ JSON-STRING is the actual JSON string if available."
         (insert "\n"))
       (insert "\n" (make-string 60 ?-) "\n"))))
 
+(defun claude-code-mcp--validate-json (json-string context)
+  "Validate that JSON-STRING is well-formed JSON.
+CONTEXT is a string describing where this JSON is being sent from.
+If logging is enabled and JSON is malformed, logs error and signals.
+Returns t if valid, signals error if invalid."
+  (condition-case err
+      (progn
+        (json-read-from-string json-string)
+        t)
+    (json-error
+     (when claude-code-mcp-enable-logging
+       (claude-code-mcp--log 'out 'json-validation-error
+                             `((context . ,context)
+                               (error . ,(error-message-string err))
+                               (json-length . ,(length json-string))
+                               (json-preview . ,(substring json-string 0 (min 200 (length json-string)))))
+                             json-string))
+     (error "Malformed JSON in %s: %s" context (error-message-string err)))))
+
 ;;; Internal state variables
 (defvar claude-code-mcp--sessions (make-hash-table :test 'equal)
   "Hash table mapping claude code buffer names to ide websocket sessions.
@@ -215,6 +234,8 @@ in Emacs to connect to an claude process running outside Emacs." )
                  (id . ,id)
                  (result . ,result)))
          (response (json-encode data)))
+    (when claude-code-mcp-enable-logging
+      (claude-code-mcp--validate-json response (format "send-response (id: %s)" id)))
     (claude-code-mcp--log 'out 'response data response)
     (websocket-send-text ws response)))
 
@@ -226,6 +247,8 @@ in Emacs to connect to an claude process running outside Emacs." )
                                  (message . ,message)
                                  ,@(when data `((data . ,data)))))))
          (response (json-encode error-data)))
+    (when claude-code-mcp-enable-logging
+      (claude-code-mcp--validate-json response (format "send-error (id: %s, code: %s)" id code)))
     (claude-code-mcp--log 'out 'error error-data response)
     (websocket-send-text ws response)))
 
@@ -242,6 +265,8 @@ If PARAMS is not provided, uses an empty hash table."
                        (method . ,method)
                        (params . ,params)))
                (notification (json-encode data)))
+          (when claude-code-mcp-enable-logging
+            (claude-code-mcp--validate-json notification (format "send-notification (method: %s)" method)))
           (claude-code-mcp--log 'out 'notification data notification)
           (condition-case err
               (websocket-send-text client notification)
