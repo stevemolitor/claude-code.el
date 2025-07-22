@@ -476,7 +476,6 @@ Returns the window if found, nil otherwise."
     ("getWorkspaceFolders" #'claude-code-mcp--tool-get-workspace-folders)
     (_ nil)))
 
-;; tool implementations
 (defun claude-code-mcp--tool-get-current-selection (_params _session)
   "Implementation of getCurrentSelection tool.
 _PARAMS is unused for this tool.
@@ -773,7 +772,6 @@ SESSION is the MCP session containing opened diffs."
     `((content . ,[`((type . "text")
                      (text . ,(format "CLOSED_%d_DIFF_TABS" closed-count)))]))))
 
-;; Real tool implementations for IDE features
 (defun claude-code-mcp--tool-get-open-editors (_params _session)
   "Implementation of getOpenEditors tool.
 _PARAMS is unused for this tool.
@@ -920,8 +918,6 @@ Remove SESSION from `claude-code-mcp--sessions'."
   "Start websocker server for claude process KEY running in DIR.
 
 Returns the session object."
-  ;; (if (gethash key claude-code-mcp--sessions)
-  ;;   (error "Websocket server already started for key %s" key)
   (let* ((port (claude-code-mcp--find-free-port))
          (auth-token (claude-code-mcp--generate-uuid))
          (session (make-claude-code-mcp--session
@@ -964,7 +960,6 @@ Returns the session object."
        nil))))
 
 ;;; Selection
-;;;; Selection functions
 (defun claude-code-mcp--get-selection ()
   "Return current selection information."
   (when buffer-file-name
@@ -996,7 +991,6 @@ Returns the session object."
         (fileUrl . ,file-url)
         (selection . ,selection)))))
 
-;;;; Selection global hooks
 (defun claude-code-mcp--track-selection-change ()
   "Track selection change in file buffers."
   (when (and buffer-file-name
@@ -1040,26 +1034,7 @@ Returns the session object."
   "Register hooks for MCP functionality."
   (add-hook 'post-command-hook #'claude-code-mcp--track-selection-change))
 
-;;; Interactive functions for testing
-
-(defun claude-code-mcp-show-log ()
-  "Show the MCP log buffer."
-  (interactive)
-  (switch-to-buffer (claude-code-mcp--get-log-buffer)))
-
-(defun claude-code-mcp-clear-log ()
-  "Clear the MCP log buffer."
-  (interactive)
-  (with-current-buffer (claude-code-mcp--get-log-buffer)
-    (erase-buffer)
-    (message "MCP log buffer cleared")))
-
-(defun claude-code-mcp-toggle-logging ()
-  "Toggle MCP logging on/off."
-  (interactive)
-  (setq claude-code-mcp-enable-logging (not claude-code-mcp-enable-logging))
-  (message "MCP logging %s" (if claude-code-mcp-enable-logging "enabled" "disabled")))
-
+;;; Interactive functions standalone terminal use
 (defun claude-code-mcp-start-websocket-server ()
   "Start a websocket server for the current buffer."
   (interactive)
@@ -1120,91 +1095,13 @@ Returns the session object."
             (error nil)))))
     (message "Cleaned up %d orphaned lockfiles" cleaned)))
 
+;;; Cleanup functions
 (defun claude-code-mcp--cleanup-on-exit ()
   "Clean up all MCP sessions and lockfiles on Emacs exit."
   (claude-code-mcp-stop-all-servers))
 
-(defun claude-code-mcp--cleanup-session (key)
-  "Clean up the MCP session for KEY."
-  (when-let* ((session (gethash key claude-code-mcp--sessions))
-              (server (claude-code-mcp--session-server session))
-              (port (claude-code-mcp--session-port session)))
-    ;; Remove lockfile before closing server
-    (claude-code-mcp--remove-lockfile port)
-    ;; Close the websocket server
-    (websocket-server-close server)
-    ;; Remove from sessions hash table
-    (remhash key claude-code-mcp--sessions)
-    ;; Remove hooks if no more sessions
-    (when (= 0 (hash-table-count claude-code-mcp--sessions))
-      (remove-hook 'post-command-hook #'claude-code-mcp--track-selection-change))
-    (message "Cleaned up MCP session for %s" key)))
-
 ;; Register cleanup on Emacs exit
 (add-hook 'kill-emacs-hook #'claude-code-mcp--cleanup-on-exit)
-
-;;;; Testing Functions
-
-;; Test Functions for Diff Display
-;;
-;; To test the diff functionality:
-;; 1. Open test-example.el (or have it in current directory)
-;; 2. Run M-x claude-code-mcp--test-diff-display
-;;
-;; The test will create a diff view using diff-no-select.
-;; You should see:
-;; - A diff buffer showing the changes
-;; - You can accept/reject changes via y-or-n prompt
-
-(defun claude-code-mcp--test-diff-display ()
-  "Test the diff display functionality.
-This function helps verify the diff-no-select implementation."
-  (interactive)
-  ;; Create a test scenario
-  (let ((test-file (expand-file-name "test-example.el")))
-    (unless (file-exists-p test-file)
-      (error "Test file test-example.el not found"))
-
-    ;; Create modified content for diff
-    (let* ((original-content (with-temp-buffer
-                               (insert-file-contents test-file)
-                               (buffer-string)))
-           (modified-content (with-temp-buffer
-                               (insert original-content)
-                               (goto-char (point-min))
-                               (search-forward "Calculate factorial of N.")
-                               (replace-match "Calculate the factorial of N recursively.")
-                               (search-forward "(message \"Hello, %s!\" name)")
-                               (replace-match "(message \"Greetings, %s!\" name)")
-                               (buffer-string)))
-           (session (make-claude-code-mcp--session
-                     :key "test-session"
-                     :port 0
-                     :server nil
-                     :client nil
-                     :initialized nil
-                     :auth-token "test-token"
-                     :opened-diffs (make-hash-table :test 'equal)
-                     :deferred-responses (make-hash-table :test 'equal))))
-
-      ;; Store test session
-      (puthash "test-session" session claude-code-mcp--sessions)
-
-      ;; Call openDiff with test parameters
-      (message "Testing diff display...")
-      (let ((result (claude-code-mcp--tool-open-diff
-                     `((old_file_path . ,test-file)
-                       (new_file_path . "Modified test-example.el")
-                       (new_file_contents . ,modified-content)
-                       (tab_name . "Test Diff"))
-                     session)))
-
-        (if result
-            (message "SUCCESS: Diff displayed! You should see a diff buffer.")
-          (message "FAILED: Diff display failed"))
-
-        ;; Don't cleanup immediately - let the handler do it
-        result))))
 
 (provide 'claude-code-mcp)
 ;;; claude-code-mcp.el ends here
