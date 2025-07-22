@@ -185,7 +185,7 @@ in Emacs to connect to an claude process running outside Emacs." )
              (file (expand-file-name (format "%d.lock" port) dir))
              (content (json-encode
                        `((pid . ,(emacs-pid))
-                         (workspaceFolders . ,[folder])
+                         (workspaceFolders . ,(vector folder))
                          (ideName . "Emacs") ;; [TODO] include directory or project in ide name
                          (transport . "ws")
                          (authToken . ,auth-token)))))
@@ -931,6 +931,8 @@ _SESSION is the MCP session (unused for this tool)."
 
 Put client WS in SESSION structure, so we can use it to send messages to
 claude later."
+  ;; Add immediate message to see if connection happens
+  (message "MCP: WebSocket connection opened on port %d" (claude-code-mcp--session-port session))
   (setf (claude-code-mcp--session-client session) ws)
   (claude-code-mcp--log 'in 'connection-opened
                         `((port . ,(claude-code-mcp--session-port session))
@@ -975,6 +977,9 @@ Remove SESSION from `claude-code-mcp--sessions'."
 
 (defun claude-code-mcp--on-message (session ws frame)
   "Handle JSON-RPC messsage from WS FRAME for SESSION."
+  ;; Add immediate logging to see if we're receiving messages
+  (when claude-code-mcp-enable-logging
+    (message "MCP: Received websocket message"))
   (condition-case err
       (let* ((payload (websocket-frame-text frame))
              (message (condition-case json-err
@@ -1018,6 +1023,7 @@ Remove SESSION from `claude-code-mcp--sessions'."
   "Start websocker server for claude process KEY running in DIR.
 
 Returns the session object."
+  (message "MCP: Starting server for key '%s' in dir '%s'" key dir)
   (let* ((port (claude-code-mcp--find-free-port))
          (auth-token (claude-code-mcp--generate-uuid))
          (session (make-claude-code-mcp--session
@@ -1027,6 +1033,7 @@ Returns the session object."
                    :auth-token auth-token
                    :opened-diffs (make-hash-table :test 'equal)
                    :deferred-responses (make-hash-table :test 'equal))))
+    (message "MCP: Allocated port %d for server" port)
     (condition-case err
         (let ((server (websocket-server
                        port
