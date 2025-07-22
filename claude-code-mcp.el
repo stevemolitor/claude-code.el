@@ -944,6 +944,10 @@ claude later."
   "Handle WebSocket WS close for SESSION.
 
 Remove SESSION from `claude-code-mcp--sessions'."
+  ;; Add immediate message to track disconnections
+  (message "MCP: WebSocket connection CLOSED on port %d for key %s" 
+           (claude-code-mcp--session-port session)
+           (claude-code-mcp--session-key session))
   (let ((key (claude-code-mcp--session-key session))
         (port (claude-code-mcp--session-port session)))
     ;; Mark as not initialized
@@ -964,6 +968,11 @@ Remove SESSION from `claude-code-mcp--sessions'."
 
 (defun claude-code-mcp--on-error-server (session _ws action error)
   "Handle WebSocket error for SESSION with WS during ACTION with ERROR."
+  ;; Add immediate error message
+  (message "MCP ERROR: port %d, action '%s': %s" 
+           (claude-code-mcp--session-port session)
+           action
+           (error-message-string error))
   (claude-code-mcp--log 'in 'websocket-error
                         `((action . ,action)
                           (error . ,(error-message-string error))
