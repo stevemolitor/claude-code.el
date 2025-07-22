@@ -374,7 +374,8 @@ Returns the window if found, nil otherwise."
         (when (and diff-buffer (buffer-live-p diff-buffer)
                    (get-buffer-window diff-buffer))
           ;; Ask user
-          (setq accept-changes (y-or-n-p "Accept the changes? "))
+          (setq accept-changes (let ((use-dialog-box nil))
+                                 (y-or-n-p "Accept the changes? ")))
           
           ;; Get the final content before buffers are killed
           (let ((final-content (when (and accept-changes new-temp-buffer 
