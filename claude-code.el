@@ -2,7 +2,7 @@
 
 ;; Author: Stephen Molitor <stevemolitor@gmail.com>
 ;; Version: 0.2.0
-;; Package-Requires: ((emacs "30.0") (transient "0.9.3"))
+;; Package-Requires: ((emacs "30.0") (transient "0.9.3") (websocket "1.15")
 ;; Keywords: tools, ai
 ;; URL: https://github.com/stevemolitor/claude-code.el
 

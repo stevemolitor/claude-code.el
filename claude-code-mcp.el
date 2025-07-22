@@ -6,12 +6,11 @@
 
 ;;; Code:
 ;;; Require dependencies
-(require 'json)
 (require 'cl-lib)
-(require 'subr-x) ; For when-let*
-(require 'project) ; For project-current and project-root
 (require 'diff-mode) ; For diff-no-select
-
+(require 'json)
+(require 'project) ; For project-current and project-root
+(require 'subr-x) ; For when-let*
 (require 'websocket)
 
 ;; Declare external functions from flymake
@@ -367,7 +366,7 @@ Returns the window if found, nil otherwise."
                                  (y-or-n-p "Accept the changes? ")))
           
           ;; Get the final content before buffers are killed
-          (let ((final-content (when (and accept-changes new-temp-buffer 
+          (let ((final-content (when (and accept-changes new-temp-buffer
                                           (buffer-live-p new-temp-buffer))
                                  (with-current-buffer new-temp-buffer
                                    (buffer-string)))))
@@ -583,7 +582,7 @@ SESSION is the MCP session for this request."
             (when mode (funcall mode)))))
 
       ;; Create the diff
-      (setq diff-buffer (diff-no-select old-temp-buffer new-temp-buffer nil t 
+      (setq diff-buffer (diff-no-select old-temp-buffer new-temp-buffer nil t
                                         (get-buffer-create diff-buffer-name)))
 
       ;; Display the diff buffer in a pop up window
