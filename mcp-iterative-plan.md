@@ -10,12 +10,12 @@ Instead of implementing all 12 tools first, we'll take an iterative approach whe
 
 ## Phase 0: URGENT - Implement Stub Tools to Prevent Crashes
 
-### Step 0.1: Add minimal stub implementations
+### Step 0.1: Add minimal stub implementations [COMPLETE]
 Before we can even test integration, we MUST implement these tools as stubs:
-- `openDiff` - Return success without actually opening diff
-- `close_tab` - Return success without action
-- `getDiagnostics` - Return empty diagnostics array
-- `closeAllDiffTabs` - Return success without action
+- ✅ `openDiff` - Implemented with full diff functionality using diff-no-select
+- ✅ `close_tab` - Implemented to properly close diff tabs
+- ✅ `getDiagnostics` - Returns empty diagnostics array (stub for now)
+- ✅ `closeAllDiffTabs` - Implemented to close all open diff tabs
 
 These prevent Claude from crashing when it tries to use them.
 
@@ -35,6 +35,11 @@ These prevent Claude from crashing when it tries to use them.
 - ✅ Returns current selection data or empty selection if no file open
 - ✅ Uses existing claude-code-mcp--get-selection function
 
+### Step 1.3: Fix critical issues [COMPLETE]
+- ✅ Fixed vector literal syntax causing malformed JSON and Claude crashes
+- ✅ Implemented JSON validation for all outgoing messages
+- ✅ Added detailed error logging when JSON validation fails
+
 ### Step 1.3: Test with Claude
 - Launch Claude with integration enabled
 - Verify websocket connection succeeds
@@ -52,10 +57,11 @@ These prevent Claude from crashing when it tries to use them.
 - ✅ Supports optional text selection with start/end positions
 - ✅ Converts 0-based line numbers to Emacs 1-based
 
-### Step 2.2: Implement getOpenEditors & getWorkspaceFolders
-- Provide workspace context to Claude
-- These are read-only, low risk
-- Test Claude's understanding of project structure
+### Step 2.2: Implement getOpenEditors & getWorkspaceFolders [COMPLETE]
+- ✅ Implemented getOpenEditors - returns list of open buffers with file paths
+- ✅ Implemented getWorkspaceFolders - returns default-directory
+- ✅ Both are read-only operations
+- ✅ Provide workspace context to Claude
 
 ### Step 2.3: Live testing
 - Use Claude for actual coding tasks
@@ -64,10 +70,13 @@ These prevent Claude from crashing when it tries to use them.
 
 ## Phase 3: Advanced Tools (Day 3)
 
-### Step 3.1: Implement openDiff
-- More complex - requires ediff integration
-- Blocking operation that waits for user
-- Critical for code review workflow
+### Step 3.1: Implement openDiff [COMPLETE]
+- ✅ Implemented with diff-no-select instead of ediff for simpler integration
+- ✅ Creates temporary buffers for old and new content
+- ✅ Displays diff in pop-up window
+- ✅ Implements deferred response pattern for blocking operation
+- ✅ Waits for user to accept/reject changes
+- ✅ Returns FILE_SAVED or DIFF_REJECTED based on user choice
 
 ### Step 3.2: Document tools
 - checkDocumentDirty

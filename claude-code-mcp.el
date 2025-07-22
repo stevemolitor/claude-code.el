@@ -485,6 +485,22 @@ Returns the window if found, nil otherwise."
    `((name . "getWorkspaceFolders")
      (description . "Get the list of workspace folders (project directories)")
      (inputSchema . ((type . "object")
+                     (properties . ()))))
+   `((name . "checkDocumentDirty")
+     (description . "Check if a document has unsaved changes")
+     (inputSchema . ((type . "object")
+                     (properties . ((uri . ((type . "string")
+                                            (description . "The file URI or path to check")))))
+                     (required . ["uri"]))))
+   `((name . "saveDocument")
+     (description . "Save a document to disk")
+     (inputSchema . ((type . "object")
+                     (properties . ((uri . ((type . "string")
+                                            (description . "The file URI or path to save")))))
+                     (required . ["uri"]))))
+   `((name . "getLatestSelection")
+     (description . "Get the latest text selection from any file")
+     (inputSchema . ((type . "object")
                      (properties . ()))))))
 
 (defun claude-code-mcp--get-tool-handler (name)
@@ -498,6 +514,9 @@ Returns the window if found, nil otherwise."
     ("closeAllDiffTabs" #'claude-code-mcp--tool-close-all-diff-tabs)
     ("getOpenEditors" #'claude-code-mcp--tool-get-open-editors)
     ("getWorkspaceFolders" #'claude-code-mcp--tool-get-workspace-folders)
+    ("checkDocumentDirty" #'claude-code-mcp--tool-check-document-dirty)
+    ("saveDocument" #'claude-code-mcp--tool-save-document)
+    ("getLatestSelection" #'claude-code-mcp--tool-get-latest-selection)
     (_ nil)))
 
 (defun claude-code-mcp--tool-get-current-selection (_params _session)
@@ -842,6 +861,63 @@ _SESSION is the MCP session (unused for this tool)."
     ;; Return the list of workspace folders
     `((content . ,(vector (list (cons 'type "text")
                                     (cons 'text (json-encode `((folders . ,(vconcat (nreverse folders))))))))))))
+
+(defun claude-code-mcp--tool-check-document-dirty (params _session)
+  "Check if a document has unsaved changes.
+PARAMS contains uri.
+_SESSION is the MCP session (unused for this tool)."
+  (let* ((uri (alist-get 'uri params))
+         (file-path (if (string-prefix-p "file://" uri)
+                        (substring uri 7)
+                      uri))
+         (buffer (find-buffer-visiting file-path))
+         (is-dirty (if buffer
+                       (buffer-modified-p buffer)
+                     nil)))
+    `((content . ,(vector (list (cons 'type "text")
+                                (cons 'text (json-encode `((isDirty . ,is-dirty))))))))))
+
+(defun claude-code-mcp--tool-save-document (params _session)
+  "Save a document to disk.
+PARAMS contains uri.
+_SESSION is the MCP session (unused for this tool)."
+  (let* ((uri (alist-get 'uri params))
+         (file-path (if (string-prefix-p "file://" uri)
+                        (substring uri 7)
+                      uri))
+         (buffer (find-buffer-visiting file-path)))
+    (if buffer
+        (with-current-buffer buffer
+          (save-buffer)
+          `((content . ,(vector (list (cons 'type "text")
+                                      (cons 'text (json-encode `((saved . t))))))))
+      `((content . ,(vector (list (cons 'type "text")
+                                  (cons 'text (json-encode `((saved . :json-false)
+                                                             (error . "File not open")))))))))))
+
+(defun claude-code-mcp--tool-get-latest-selection (_params _session)
+  "Get the latest text selection from any file.
+_PARAMS is unused for this tool.
+_SESSION is the MCP session (unused for this tool)."
+  ;; Find the most recently selected buffer with a selection
+  (let ((selection-data nil)
+        (latest-time 0))
+    (dolist (buffer (buffer-list))
+      (with-current-buffer buffer
+        (when (and (use-region-p)
+                   (> (buffer-modified-tick) latest-time))
+          (setq latest-time (buffer-modified-tick))
+          (setq selection-data (claude-code-mcp--get-selection)))))
+    ;; If no selection found, return empty
+    (if selection-data
+        `((content . ,(vector (list (cons 'type "text")
+                                    (cons 'text (json-encode selection-data))))))
+      `((content . ,(vector (list (cons 'type "text")
+                                  (cons 'text (json-encode '((text . "")
+                                                             (filePath . "")
+                                                             (selection . ((start . ((line . 0) (character . 0)))
+                                                                           (end . ((line . 0) (character . 0)))
+                                                                           (isEmpty . t))))))))))))))
 
 ;;; Websocket server management functions
 ;; NOTE: Authentication validation limitation
