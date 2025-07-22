@@ -360,19 +360,7 @@ Searches all sessions for the deferred response."
        ws id -32601
        (format "Tool not found: %s" tool-name)))))
 
-;;; diff Helper Functions
-(defun claude-code-mcp--find-claude-window ()
-  "Find the window displaying a Claude buffer.
-Returns the window if found, nil otherwise."
-  (catch 'found
-    (dolist (window (window-list))
-      (let ((buf-name (buffer-name (window-buffer window))))
-        (when (and buf-name
-                   (or (string-match-p "\\*claude" buf-name)
-                       (string-match-p "\\*Claude" buf-name)))
-          (throw 'found window))))
-    nil))
-
+;;; Diffs
 (defun claude-code-mcp--handle-diff-response (tab-name session)
   "Handle user response to diff for TAB-NAME in SESSION."
   (let* ((opened-diffs (claude-code-mcp--session-opened-diffs session))
@@ -418,8 +406,8 @@ Returns the window if found, nil otherwise."
                    (not (get-buffer-window diff-buffer)))
           (run-with-timer
            1.0 nil
-           `(lambda ()
-              (claude-code-mcp--handle-diff-response ',tab-name ',session))))))))
+           (lambda ()
+             (claude-code-mcp--handle-diff-response tab-name session))))))))
 
 (defun claude-code-mcp--cleanup-diff (tab-name session)
   "Clean up diff session for TAB-NAME in SESSION."
@@ -427,19 +415,17 @@ Returns the window if found, nil otherwise."
     (when-let ((diff-info (gethash tab-name opened-diffs)))
       (let ((old-temp-buffer (alist-get 'old-temp-buffer diff-info))
             (new-temp-buffer (alist-get 'new-temp-buffer diff-info))
-            (diff-buffer (alist-get 'diff-buffer diff-info)))
-        
-        ;; Clean up diff-no-select buffers
-        (when (and old-temp-buffer (buffer-live-p old-temp-buffer))
-          (kill-buffer old-temp-buffer))
+            (diff-buffer (alist-get 'diff-buffer diff-info))
+            (file-exists (alist-get 'file-exists diff-info)))
+        ;; Kill the diff buffer
+        (when (and diff-buffer (buffer-live-p diff-buffer))
+          (kill-buffer diff-buffer))
+        ;; Kill the new temporary buffer
         (when (and new-temp-buffer (buffer-live-p new-temp-buffer))
           (kill-buffer new-temp-buffer))
-        (when (and diff-buffer (buffer-live-p diff-buffer))
-          (let ((win (get-buffer-window diff-buffer)))
-            (when win (delete-window win)))
-          (kill-buffer diff-buffer))
-        
-        
+        ;; Kill the old temporary buffer
+        (when (and old-temp-buffer (buffer-live-p old-temp-buffer))
+          (kill-buffer old-temp-buffer))
         ;; Remove from opened diffs
         (remhash tab-name opened-diffs)))))
 
@@ -465,6 +451,10 @@ Returns the window if found, nil otherwise."
                                     (new_file_contents . ((type . "string")))
                                     (tab_name . ((type . "string")))))
                      (required . ["old_file_path" "new_file_path" "new_file_contents"]))))
+   `((name . "closeAllDiffTabs")
+     (description . "Close all diff tabs")
+     (inputSchema . ((type . "object")
+                     (properties . ()))))
    `((name . "close_tab")
      (description . "Close a tab")
      (inputSchema . ((type . "object")
@@ -474,10 +464,6 @@ Returns the window if found, nil otherwise."
      (description . "Get diagnostics for a file")
      (inputSchema . ((type . "object")
                      (properties . ((uri . ((type . "string"))))))))
-   `((name . "closeAllDiffTabs")
-     (description . "Close all diff tabs")
-     (inputSchema . ((type . "object")
-                     (properties . ()))))
    `((name . "getOpenEditors")
      (description . "Get the list of currently open files in the editor")
      (inputSchema . ((type . "object")
@@ -509,9 +495,9 @@ Returns the window if found, nil otherwise."
     ("getCurrentSelection" #'claude-code-mcp--tool-get-current-selection)
     ("openFile" #'claude-code-mcp--tool-open-file)
     ("openDiff" #'claude-code-mcp--tool-open-diff)
+    ("closeAllDiffTabs" #'claude-code-mcp--tool-close-all-diff-tabs)
     ("close_tab" #'claude-code-mcp--tool-close-tab)
     ("getDiagnostics" #'claude-code-mcp--tool-get-diagnostics)
-    ("closeAllDiffTabs" #'claude-code-mcp--tool-close-all-diff-tabs)
     ("getOpenEditors" #'claude-code-mcp--tool-get-open-editors)
     ("getWorkspaceFolders" #'claude-code-mcp--tool-get-workspace-folders)
     ("checkDocumentDirty" #'claude-code-mcp--tool-check-document-dirty)
@@ -580,7 +566,7 @@ SESSION is the MCP session for this request."
     (unless (and old-path new-contents tab-name)
       (error "Missing required parameters: old_file_path, new_file_contents, and tab_name"))
 
-    ;; Session is now passed as parameter
+    ;; Verify non-nil session
     (unless session
       (error "No active MCP session found"))
 
@@ -616,9 +602,16 @@ SESSION is the MCP session for this request."
             (when mode (funcall mode)))))
 
       ;; Create the diff
-      (setq diff-buffer (diff-no-select old-temp-buffer new-temp-buffer nil t
-                                        (get-buffer-create diff-buffer-name)))
-
+      (setq diff-buffer (get-buffer-create diff-buffer-name))
+      
+      (with-current-buffer diff-buffer
+        ;; Set read-only before diff-mode
+        (setq buffer-read-only t)
+        ;; Enable diff-mode with syntax highlighting
+        (let ((diff-font-lock-syntax 'hunk-also))
+          ;; Create the diff
+          (diff-no-select old-temp-buffer new-temp-buffer nil t diff-buffer)))
+      
       ;; Display the diff buffer in a pop up window
       (display-buffer diff-buffer
                       '((display-buffer-pop-up-window)
@@ -645,8 +638,8 @@ SESSION is the MCP session for this request."
       ;; Set up a timer to check for user response
       (run-with-timer
        0.5 nil
-       `(lambda ()
-          (claude-code-mcp--handle-diff-response ',tab-name ',session)))
+       (lambda ()
+         (claude-code-mcp--handle-diff-response tab-name session)))
 
       ;; Return deferred response
       `((deferred . t)
