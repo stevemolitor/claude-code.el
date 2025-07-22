@@ -378,15 +378,15 @@ Returns the window if found, nil otherwise."
                 ;; User accepted changes
                 (claude-code-mcp--complete-deferred-response
                  tab-name
-                 `((content . [((type . "text")
-                                (text . "FILE_SAVED"))
-                               ((type . "text")
-                                (text . ,final-content))]))))
+                 `((content . ,(vector (list (cons 'type "text")
+                                             (cons 'text "FILE_SAVED"))
+                                       (list (cons 'type "text")
+                                             (cons 'text final-content))))))
             ;; User rejected changes
             (claude-code-mcp--complete-deferred-response
              tab-name
-             `((content . [((type . "text")
-                            (text . "DIFF_REJECTED"))]))))
+             `((content . ,(vector (list (cons 'type "text")
+                                         (cons 'text "DIFF_REJECTED"))))))
 
         ;; If diff buffer is not visible, check again later
         (when (and diff-buffer (buffer-live-p diff-buffer)
@@ -482,10 +482,10 @@ _PARAMS is unused for this tool.
 _SESSION is the MCP session (unused for this tool)."
   (let ((selection-data (claude-code-mcp--get-selection)))
     (if selection-data
-        `((content . [((type . "text")
-                         (text . ,(json-encode selection-data)))]))
-      `((content . [((type . "text")
-                       (text . ,(json-encode '((text . "")
+        `((content . ,(vector (list (cons 'type "text")
+                                      (cons 'text (json-encode selection-data))))))
+      `((content . ,(vector (list (cons 'type "text")
+                                    (cons 'text (json-encode '((text . "")
                                                (filePath . "")
                                                (selection . ((start . ((line . 0) (character . 0)))
                                                              (end . ((line . 0) (character . 0)))
@@ -515,11 +515,11 @@ _SESSION is the MCP session (unused for this tool)."
         (switch-to-buffer (current-buffer))
 
         ;; Return success with file information
-        `((content . [((type . "text")
-                         (text . ,(format "Opened file: %s" file-path)))]))
+        `((content . ,(vector (list (cons 'type "text")
+                                      (cons 'text (format "Opened file: %s" file-path))))))
         (error
-         `((content . [((type . "text")
-                          (text . ,(format "Error opening file: %s" (error-message-string err))))]))))))
+         `((content . ,(vector (list (cons 'type "text")
+                                       (cons 'text (format "Error opening file: %s" (error-message-string err)))))))))
 
 ;; Diff tool implementation using diff-no-select
 (defun claude-code-mcp--tool-open-diff (params session)
@@ -627,8 +627,8 @@ SESSION is the MCP session for tracking opened diffs."
                                       (result . "TAB_CLOSED"))
                                     nil)
               ;; Return success response
-              `((content . [((type . "text")
-                               (text . "TAB_CLOSED"))]))
+              `((content . ,(vector (list (cons 'type "text")
+                                           (cons 'text "TAB_CLOSED")))))
               ;; Buffer not found - log and return success anyway
               (progn
                 (message "Claude Code: No buffer visiting %s, ignoring close request" path)
@@ -636,8 +636,8 @@ SESSION is the MCP session for tracking opened diffs."
                                       `((path . ,path)
                                         (result . "Buffer not found, returning success"))
                                       nil)
-                `((content . [((type . "text")
-                                 (text . "TAB_CLOSED"))])))))))
+                `((content . ,(vector (list (cons 'type "text")
+                                             (cons 'text "TAB_CLOSED"))))))))))
      ;; Handle closing by tab name (buffer name or diff tab)
      (tab-name
       ;; First check if this is a diff tab
@@ -655,8 +655,8 @@ SESSION is the MCP session for tracking opened diffs."
                                       (result . "TAB_CLOSED"))
                                     nil)
               ;; Return success response
-              `((content . [((type . "text")
-                               (text . "TAB_CLOSED"))]))))
+              `((content . ,(vector (list (cons 'type "text")
+                                           (cons 'text "TAB_CLOSED")))))))
         ;; Not a diff - treat tab_name as regular buffer name
         (let ((buffer (get-buffer tab-name)))
           (if buffer
@@ -667,8 +667,8 @@ SESSION is the MCP session for tracking opened diffs."
                                         (result . "TAB_CLOSED"))
                                       nil)
                 ;; Return success response
-                `((content . [((type . "text")
-                                 (text . "TAB_CLOSED"))]))
+                `((content . ,(vector (list (cons 'type "text")
+                                             (cons 'text "TAB_CLOSED")))))
                 ;; Buffer not found - log and return success anyway
                 (progn
                   (message "Claude Code: No buffer named %s, ignoring close request" tab-name)
@@ -676,8 +676,8 @@ SESSION is the MCP session for tracking opened diffs."
                                         `((tab-name . ,tab-name)
                                           (result . "Buffer not found, returning success"))
                                         nil)
-                  `((content . [((type . "text")
-                                   (text . "TAB_CLOSED"))]))))))))
+                  `((content . ,(vector (list (cons 'type "text")
+                                               (cons 'text "TAB_CLOSED")))))))))))
      ;; Neither path nor tab_name provided - this is still an error
      (t
       (error "Either 'path' or 'tab_name' must be provided")))))
@@ -752,8 +752,8 @@ _SESSION is the MCP session (unused for this tool)."
                         (source . ,checker))
                       diagnostics)))))))
     ;; Return the diagnostics
-    `((content . [((type . "text")
-                     (text . ,(json-encode `((diagnostics . ,(vconcat (nreverse diagnostics)))))))]))))
+    `((content . ,(vector (list (cons 'type "text")
+                                    (cons 'text (json-encode `((diagnostics . ,(vconcat (nreverse diagnostics))))))))))))
 
 (defun claude-code-mcp--tool-close-all-diff-tabs (_params session)
   "Close all diff tabs created by Claude.
@@ -769,8 +769,8 @@ SESSION is the MCP session containing opened diffs."
                  opened-diffs)))
     (message "Claude Code: Closed %d diff tabs" closed-count)
     ;; Return success with actual count
-    `((content . [((type . "text")
-                     (text . ,(format "CLOSED_%d_DIFF_TABS" closed-count)))]))))
+    `((content . ,(vector (list (cons 'type "text")
+                                    (cons 'text (format "CLOSED_%d_DIFF_TABS" closed-count))))))))
 
 (defun claude-code-mcp--tool-get-open-editors (_params _session)
   "Implementation of getOpenEditors tool.
@@ -785,8 +785,8 @@ _SESSION is the MCP session (unused for this tool)."
                 (path . ,file))
               editors)))
     ;; Return the list of open editors
-    `((content . [((type . "text")
-                     (text . ,(json-encode `((editors . ,(vconcat (nreverse editors)))))))]))))
+    `((content . ,(vector (list (cons 'type "text")
+                                    (cons 'text (json-encode `((editors . ,(vconcat (nreverse editors))))))))))))
 
 (defun claude-code-mcp--tool-get-workspace-folders (_params _session)
   "Implementation of getWorkspaceFolders tool.
@@ -816,8 +816,8 @@ _SESSION is the MCP session (unused for this tool)."
                     (name . ,(file-name-nondirectory (directory-file-name project-root))))
                   folders)))))
     ;; Return the list of workspace folders
-    `((content . [((type . "text")
-                     (text . ,(json-encode `((folders . ,(vconcat (nreverse folders)))))))]))))
+    `((content . ,(vector (list (cons 'type "text")
+                                    (cons 'text (json-encode `((folders . ,(vconcat (nreverse folders))))))))))))
 
 ;;; Websocket server management functions
 ;; NOTE: Authentication validation limitation
