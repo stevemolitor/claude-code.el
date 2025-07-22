@@ -350,7 +350,6 @@ Returns the window if found, nil otherwise."
           (throw 'found window))))
     nil))
 
-
 (defun claude-code-mcp--handle-diff-response (tab-name session)
   "Handle user response to diff for TAB-NAME in SESSION."
   (let* ((opened-diffs (claude-code-mcp--session-opened-diffs session))
@@ -428,7 +427,6 @@ Returns the window if found, nil otherwise."
 (defun claude-code-mcp--get-tools-list ()
   "Return the list of available MCP tools."
   (vector
-   ;; Real tools
    `((name . "getCurrentSelection")
      (description . "Get the current text selection or cursor position in the active editor")
      (inputSchema . ((type . "object")
@@ -483,7 +481,7 @@ Returns the window if found, nil otherwise."
     ("getWorkspaceFolders" #'claude-code-mcp--tool-get-workspace-folders)
     (_ nil)))
 
-;; Real tool implementations
+;; tool implementations
 (defun claude-code-mcp--tool-get-current-selection (_params _session)
   "Implementation of getCurrentSelection tool.
 _PARAMS is unused for this tool.
