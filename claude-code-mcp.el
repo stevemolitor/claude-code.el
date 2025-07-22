@@ -1212,6 +1212,22 @@ Returns the session object."
     (message "Cleaned up %d orphaned lockfiles" cleaned)))
 
 ;;; Cleanup functions
+(defun claude-code-mcp--cleanup-session (key)
+  "Clean up the MCP session for KEY."
+  (when-let* ((session (gethash key claude-code-mcp--sessions))
+              (server (claude-code-mcp--session-server session))
+              (port (claude-code-mcp--session-port session)))
+    ;; Remove lockfile before closing server
+    (claude-code-mcp--remove-lockfile port)
+    ;; Close the websocket server
+    (websocket-server-close server)
+    ;; Remove from sessions hash table
+    (remhash key claude-code-mcp--sessions)
+    ;; Remove hooks if no more sessions
+    (when (= 0 (hash-table-count claude-code-mcp--sessions))
+      (remove-hook 'post-command-hook #'claude-code-mcp--track-selection-change))
+    (message "Cleaned up MCP session for %s" key)))
+
 (defun claude-code-mcp--cleanup-on-exit ()
   "Clean up all MCP sessions and lockfiles on Emacs exit."
   (claude-code-mcp-stop-all-servers))
