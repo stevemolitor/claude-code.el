@@ -59,6 +59,10 @@
   :group 'claude-code)
 
 ;;; Logging functions
+(defun claude-code-mcp--get-log-buffer ()
+  "Get or create the MCP log buffer."
+  (get-buffer-create claude-code-mcp-log-buffer-name))
+
 (defun claude-code-mcp--log (direction type data &optional json-string)
   "Log MCP message to buffer.
 
@@ -226,14 +230,16 @@ in Emacs to connect to an claude process running outside Emacs." )
     (claude-code-mcp--log 'out 'error error-data response)
     (websocket-send-text ws response)))
 
-(defun claude-code-mcp--send-notification (client method params)
-  "Send notification with METHOD and PARAMS to CLIENT."
+(defun claude-code-mcp--send-notification (client method &optional params)
+  "Send notification with METHOD and PARAMS to CLIENT.
+If PARAMS is not provided, uses an empty hash table."
   (when client
     (let* ((session (claude-code-mcp--find-session-by-client client)))
       ;; Only send if session is initialized (unless it's the initialization-related notification)
       (when (or (and session (claude-code-mcp--session-initialized session))
                 (string-prefix-p "notifications/" method))
-        (let* ((data `((jsonrpc . "2.0")
+        (let* ((params (or params (make-hash-table :test 'equal)))
+               (data `((jsonrpc . "2.0")
                        (method . ,method)
                        (params . ,params)))
                (notification (json-encode data)))
@@ -294,14 +300,10 @@ Searches all sessions for the deferred response."
                             (port . ,(claude-code-mcp--session-port session)))
                           nil)
 
-    ;; Send tools/list_changed notification after a delay [TODO] do we need the delay?
-    (run-with-timer claude-code-mcp--initial-notification-delay nil
-                    (lambda ()
-                      (when-let ((s (gethash (claude-code-mcp--session-key session) claude-code-mcp--sessions)))
-                        (claude-code-mcp--send-notification
-                         (claude-code-mcp--session-client s)
-                         "notifications/tools/list_changed"
-                         (make-hash-table :test 'equal)))))))
+    ;; Send tools/list_changed notification immediately
+    (claude-code-mcp--send-notification
+     client
+     "notifications/tools/list_changed")))
 
 (defun claude-code-mcp--handle-tools-list (_session ws id _params)
   "Handle tools/list request with ID and PARAMS from WS for SESSION."
