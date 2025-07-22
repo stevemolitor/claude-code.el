@@ -166,7 +166,7 @@ in Emacs to connect to an claude process running outside Emacs." )
              (file (expand-file-name (format "%d.lock" port) dir))
              (content (json-encode
                        `((pid . ,(emacs-pid))
-                         (workspaceFolders . ,(vector folder))
+                         (workspaceFolders . ,[folder])
                          (ideName . "Emacs") ;; [TODO] include directory or project in ide name
                          (transport . "ws")
                          (authToken . ,auth-token)))))
@@ -336,7 +336,6 @@ Searches all sessions for the deferred response."
        (format "Tool not found: %s" tool-name)))))
 
 ;;; diff Helper Functions
-
 (defun claude-code-mcp--find-claude-window ()
   "Find the window displaying a Claude buffer.
 Returns the window if found, nil otherwise."
@@ -357,40 +356,38 @@ Returns the window if found, nil otherwise."
       (let* ((diff-buffer (alist-get 'diff-buffer diff-info))
              (new-temp-buffer (alist-get 'new-temp-buffer diff-info))
              (accept-changes nil))
-        
+
         ;; Check if diff buffer still exists and is visible
         (when (and diff-buffer (buffer-live-p diff-buffer)
                    (get-buffer-window diff-buffer))
           ;; Ask user
           (setq accept-changes (let ((use-dialog-box nil))
                                  (y-or-n-p "Accept the changes? ")))
-          
+
           ;; Get the final content before buffers are killed
           (let ((final-content (when (and accept-changes new-temp-buffer
                                           (buffer-live-p new-temp-buffer))
                                  (with-current-buffer new-temp-buffer
                                    (buffer-string)))))
-            
+
             ;; Clean up the diff
             (claude-code-mcp--cleanup-diff tab-name session)
-            
+
             ;; Send deferred response
             (if accept-changes
                 ;; User accepted changes
                 (claude-code-mcp--complete-deferred-response
                  tab-name
-                 (list (cons 'content
-                             (vector (list (cons 'type "text")
-                                           (cons 'text "FILE_SAVED"))
-                                     (list (cons 'type "text")
-                                           (cons 'text final-content))))))
-              ;; User rejected changes
-              (claude-code-mcp--complete-deferred-response
-               tab-name
-               (list (cons 'content
-                           (vector (list (cons 'type "text")
-                                         (cons 'text "DIFF_REJECTED")))))))))
-        
+                 `((content . ,[`((type . "text")
+                                  (text . "FILE_SAVED"))
+                                `((type . "text")
+                                  (text . ,final-content))]))))
+            ;; User rejected changes
+            (claude-code-mcp--complete-deferred-response
+             tab-name
+             `((content . ,[`((type . "text")
+                              (text . "DIFF_REJECTED"))])))))
+
         ;; If diff buffer is not visible, check again later
         (when (and diff-buffer (buffer-live-p diff-buffer)
                    (not (get-buffer-window diff-buffer)))
@@ -398,7 +395,6 @@ Returns the window if found, nil otherwise."
            1.0 nil
            `(lambda ()
               (claude-code-mcp--handle-diff-response ',tab-name ',session))))))))
-
 
 (defun claude-code-mcp--cleanup-diff (tab-name session)
   "Clean up diff session for TAB-NAME in SESSION."
@@ -435,7 +431,7 @@ Returns the window if found, nil otherwise."
      (inputSchema . ((type . "object")
                      (properties . ((uri . ((type . "string")
                                             (description . "The file URI or path to open")))))
-                     (required . ,(vector "uri")))))
+                     (required . ,["uri"]))))
    ;; Stub tools to prevent crashes
    `((name . "openDiff")
      (description . "Open a diff view")
@@ -444,12 +440,12 @@ Returns the window if found, nil otherwise."
                                     (new_file_path . ((type . "string")))
                                     (new_file_contents . ((type . "string")))
                                     (tab_name . ((type . "string")))))
-                     (required . ,(vector "old_file_path" "new_file_path" "new_file_contents")))))
+                     (required . ,["old_file_path" "new_file_path" "new_file_contents"]))))
    `((name . "close_tab")
      (description . "Close a tab")
      (inputSchema . ((type . "object")
                      (properties . ((tab_name . ((type . "string")))))
-                     (required . ,(vector "tab_name")))))
+                     (required . ,["tab_name"]))))
    `((name . "getDiagnostics")
      (description . "Get diagnostics for a file")
      (inputSchema . ((type . "object")
@@ -487,16 +483,14 @@ _PARAMS is unused for this tool.
 _SESSION is the MCP session (unused for this tool)."
   (let ((selection-data (claude-code-mcp--get-selection)))
     (if selection-data
-        (list (cons 'content
-                    (vector (list (cons 'type "text")
-                                  (cons 'text (json-encode selection-data))))))
-      (list (cons 'content
-                  (vector (list (cons 'type "text")
-                                (cons 'text (json-encode '((text . "")
-                                                           (filePath . "")
-                                                           (selection . ((start . ((line . 0) (character . 0)))
-                                                                         (end . ((line . 0) (character . 0)))
-                                                                         (isEmpty . t)))))))))))))
+        `((content . ,[`((type . "text")
+                         (text . ,(json-encode selection-data)))]))
+      `((content . ,[`((type . "text")
+                       (text . ,(json-encode '((text . "")
+                                               (filePath . "")
+                                               (selection . ((start . ((line . 0) (character . 0)))
+                                                             (end . ((line . 0) (character . 0)))
+                                                             (isEmpty . t)))))))])))))
 
 (defun claude-code-mcp--tool-open-file (params _session)
   "Implementation of openFile tool.
@@ -522,13 +516,11 @@ _SESSION is the MCP session (unused for this tool)."
         (switch-to-buffer (current-buffer))
 
         ;; Return success with file information
-        (list (cons 'content
-                    (vector (list (cons 'type "text")
-                                  (cons 'text (format "Opened file: %s" file-path)))))))
-    (error
-     (list (cons 'content
-                 (vector (list (cons 'type "text")
-                               (cons 'text (format "Error opening file: %s" (error-message-string err))))))))))
+        `((content . ,[`((type . "text")
+                         (text . ,(format "Opened file: %s" file-path)))]))
+        (error
+         `((content . ,[`((type . "text")
+                          (text . ,(format "Error opening file: %s" (error-message-string err))))]))))))
 
 ;; Diff tool implementation using diff-no-select
 (defun claude-code-mcp--tool-open-diff (params session)
@@ -636,26 +628,24 @@ SESSION is the MCP session for tracking opened diffs."
                                       (result . "TAB_CLOSED"))
                                     nil)
               ;; Return success response
-              (list (cons 'content
-                          (vector (list (cons 'type "text")
-                                        (cons 'text "TAB_CLOSED"))))))
-          ;; Buffer not found - log and return success anyway
-          (progn
-            (message "Claude Code: No buffer visiting %s, ignoring close request" path)
-            (claude-code-mcp--log 'out 'close-tab-no-buffer
-                                  `((path . ,path)
-                                    (result . "Buffer not found, returning success"))
-                                  nil)
-            (list (cons 'content
-                        (vector (list (cons 'type "text")
-                                      (cons 'text "TAB_CLOSED")))))))))
+              `((content . ,[`((type . "text")
+                               (text . "TAB_CLOSED"))]))
+              ;; Buffer not found - log and return success anyway
+              (progn
+                (message "Claude Code: No buffer visiting %s, ignoring close request" path)
+                (claude-code-mcp--log 'out 'close-tab-no-buffer
+                                      `((path . ,path)
+                                        (result . "Buffer not found, returning success"))
+                                      nil)
+                `((content . ,[`((type . "text")
+                                 (text . "TAB_CLOSED"))])))))))
      ;; Handle closing by tab name (buffer name or diff tab)
      (tab-name
       ;; First check if this is a diff tab
       (let* ((opened-diffs (when session
-                            (claude-code-mcp--session-opened-diffs session)))
+                             (claude-code-mcp--session-opened-diffs session)))
              (diff-info (when opened-diffs
-                         (gethash tab-name opened-diffs))))
+                          (gethash tab-name opened-diffs))))
         (if diff-info
             ;; It's a diff tab - handle appropriately
             (progn
@@ -666,32 +656,29 @@ SESSION is the MCP session for tracking opened diffs."
                                       (result . "TAB_CLOSED"))
                                     nil)
               ;; Return success response
-              (list (cons 'content
-                          (vector (list (cons 'type "text")
-                                        (cons 'text "TAB_CLOSED"))))))
-          ;; Not a diff - treat tab_name as regular buffer name
-          (let ((buffer (get-buffer tab-name)))
-            (if buffer
-                (progn
-                  (kill-buffer buffer)
-                  (claude-code-mcp--log 'out 'close-tab-success
-                                        `((tab-name . ,tab-name)
-                                          (result . "TAB_CLOSED"))
-                                        nil)
-                  ;; Return success response
-                  (list (cons 'content
-                              (vector (list (cons 'type "text")
-                                            (cons 'text "TAB_CLOSED"))))))
-              ;; Buffer not found - log and return success anyway
+              `((content . ,[`((type . "text")
+                               (text . "TAB_CLOSED"))]))))
+        ;; Not a diff - treat tab_name as regular buffer name
+        (let ((buffer (get-buffer tab-name)))
+          (if buffer
               (progn
-                (message "Claude Code: No buffer named %s, ignoring close request" tab-name)
-                (claude-code-mcp--log 'out 'close-tab-no-buffer
+                (kill-buffer buffer)
+                (claude-code-mcp--log 'out 'close-tab-success
                                       `((tab-name . ,tab-name)
-                                        (result . "Buffer not found, returning success"))
+                                        (result . "TAB_CLOSED"))
                                       nil)
-                (list (cons 'content
-                            (vector (list (cons 'type "text")
-                                          (cons 'text "TAB_CLOSED")))))))))))
+                ;; Return success response
+                `((content . ,[`((type . "text")
+                                 (text . "TAB_CLOSED"))]))
+                ;; Buffer not found - log and return success anyway
+                (progn
+                  (message "Claude Code: No buffer named %s, ignoring close request" tab-name)
+                  (claude-code-mcp--log 'out 'close-tab-no-buffer
+                                        `((tab-name . ,tab-name)
+                                          (result . "Buffer not found, returning success"))
+                                        nil)
+                  `((content . ,[`((type . "text")
+                                   (text . "TAB_CLOSED"))]))))))))
      ;; Neither path nor tab_name provided - this is still an error
      (t
       (error "Either 'path' or 'tab_name' must be provided")))))
@@ -702,9 +689,9 @@ PARAMS contains optional uri.
 _SESSION is the MCP session (unused for this tool)."
   (let* ((uri (alist-get 'uri params))
          (file-path (when uri
-                     (if (string-prefix-p "file://" uri)
-                         (substring uri 7)
-                       uri)))
+                      (if (string-prefix-p "file://" uri)
+                          (substring uri 7)
+                        uri)))
          (diagnostics '()))
     ;; Get diagnostics for the specified file or all open files
     (dolist (buffer (buffer-list))
@@ -720,26 +707,26 @@ _SESSION is the MCP session (unused for this tool)."
                      (type (flymake-diagnostic-type diag))
                      (text (flymake-diagnostic-text diag))
                      (severity (cond
-                               ((eq type :error) 1)     ; Error
-                               ((eq type :warning) 2)   ; Warning
-                               ((eq type :note) 3)      ; Information
-                               (t 4)))                  ; Hint
+                                ((eq type :error) 1) ; Error
+                                ((eq type :warning) 2) ; Warning
+                                ((eq type :note) 3)    ; Information
+                                (t 4)))                ; Hint
                      (start-line (1- (line-number-at-pos beg)))
                      (start-char (save-excursion
-                                  (goto-char beg)
-                                  (current-column)))
+                                   (goto-char beg)
+                                   (current-column)))
                      (end-line (1- (line-number-at-pos end)))
                      (end-char (save-excursion
-                                (goto-char end)
-                                (current-column))))
-                (push (list (cons 'uri (concat "file://" (buffer-file-name)))
-                           (cons 'range (list (cons 'start (list (cons 'line start-line)
-                                                               (cons 'character start-char)))
-                                            (cons 'end (list (cons 'line end-line)
-                                                           (cons 'character end-char)))))
-                           (cons 'severity severity)
-                           (cons 'message text)
-                           (cons 'source "flymake"))
+                                 (goto-char end)
+                                 (current-column))))
+                (push `((uri . ,(concat "file://" (buffer-file-name)))
+                        (range . ((start . ((line . ,start-line)
+                                            (character . ,start-char)))
+                                  (end . ((line . ,end-line)
+                                          (character . ,end-char)))))
+                        (severity . ,severity)
+                        (message . ,text)
+                        (source . "flymake"))
                       diagnostics))))
           ;; Check flycheck if available
           (when (and (bound-and-true-p flycheck-mode)
@@ -752,23 +739,22 @@ _SESSION is the MCP session (unused for this tool)."
                      (msg (flycheck-error-message err))
                      (checker (symbol-name (flycheck-error-checker err)))
                      (severity (cond
-                               ((eq level 'error) 1)
-                               ((eq level 'warning) 2)
-                               ((eq level 'info) 3)
-                               (t 4))))
-                (push (list (cons 'uri (concat "file://" (buffer-file-name)))
-                           (cons 'range (list (cons 'start (list (cons 'line line)
-                                                               (cons 'character col)))
-                                            (cons 'end (list (cons 'line line)
-                                                           (cons 'character col)))))
-                           (cons 'severity severity)
-                           (cons 'message msg)
-                           (cons 'source checker))
+                                ((eq level 'error) 1)
+                                ((eq level 'warning) 2)
+                                ((eq level 'info) 3)
+                                (t 4))))
+                (push `((uri . ,(concat "file://" (buffer-file-name)))
+                        (range . ((start . ((line . ,line)
+                                            (character . ,col)))
+                                  (end . ((line . ,line)
+                                          (character . ,col)))))
+                        (severity . ,severity)
+                        (message . ,msg)
+                        (source . ,checker))
                       diagnostics)))))))
     ;; Return the diagnostics
-    (list (cons 'content
-                (vector (list (cons 'type "text")
-                              (cons 'text (json-encode (list (cons 'diagnostics (vconcat (nreverse diagnostics))))))))))))
+    `((content . ,[`((type . "text")
+                     (text . ,(json-encode `((diagnostics . ,(vconcat (nreverse diagnostics)))))))]))))
 
 (defun claude-code-mcp--tool-close-all-diff-tabs (_params session)
   "Close all diff tabs created by Claude.
@@ -784,9 +770,8 @@ SESSION is the MCP session containing opened diffs."
                  opened-diffs)))
     (message "Claude Code: Closed %d diff tabs" closed-count)
     ;; Return success with actual count
-    (list (cons 'content
-                (vector (list (cons 'type "text")
-                              (cons 'text (format "CLOSED_%d_DIFF_TABS" closed-count))))))))
+    `((content . ,[`((type . "text")
+                     (text . ,(format "CLOSED_%d_DIFF_TABS" closed-count)))]))))
 
 ;; Real tool implementations for IDE features
 (defun claude-code-mcp--tool-get-open-editors (_params _session)
@@ -797,14 +782,13 @@ _SESSION is the MCP session (unused for this tool)."
     ;; Collect all file-visiting buffers
     (dolist (buffer (buffer-list))
       (when-let* ((file (buffer-file-name buffer)))
-        (push (list (cons 'uri (concat "file://" file))
-                    (cons 'name (file-name-nondirectory file))
-                    (cons 'path file))
+        (push `((uri . ,(concat "file://" file))
+                (name . ,(file-name-nondirectory file))
+                (path . ,file))
               editors)))
     ;; Return the list of open editors
-    (list (cons 'content
-                (vector (list (cons 'type "text")
-                              (cons 'text (json-encode (list (cons 'editors (vconcat (nreverse editors))))))))))))
+    `((content . ,[`((type . "text")
+                     (text . ,(json-encode `((editors . ,(vconcat (nreverse editors)))))))]))))
 
 (defun claude-code-mcp--tool-get-workspace-folders (_params _session)
   "Implementation of getWorkspaceFolders tool.
@@ -817,8 +801,8 @@ _SESSION is the MCP session (unused for this tool)."
       (let ((root (project-root project)))
         (unless (gethash root seen-dirs)
           (puthash root t seen-dirs)
-          (push (list (cons 'uri (concat "file://" root))
-                      (cons 'name (file-name-nondirectory (directory-file-name root))))
+          (push `((uri . ,(concat "file://" root))
+                  (name . ,(file-name-nondirectory (directory-file-name root))))
                 folders))))
     ;; Then add unique directories from all file-visiting buffers
     (dolist (buffer (buffer-list))
@@ -830,13 +814,12 @@ _SESSION is the MCP session (unused for this tool)."
                                 dir)))
           (unless (gethash project-root seen-dirs)
             (puthash project-root t seen-dirs)
-            (push (list (cons 'uri (concat "file://" project-root))
-                        (cons 'name (file-name-nondirectory (directory-file-name project-root))))
+            (push `((uri . ,(concat "file://" project-root))
+                    (name . ,(file-name-nondirectory (directory-file-name project-root))))
                   folders)))))
     ;; Return the list of workspace folders
-    (list (cons 'content
-                (vector (list (cons 'type "text")
-                              (cons 'text (json-encode (list (cons 'folders (vconcat (nreverse folders))))))))))))
+    `((content . ,[`((type . "text")
+                     (text . ,(json-encode `((folders . ,(vconcat (nreverse folders)))))))]))))
 
 ;;; Websocket server management functions
 ;; NOTE: Authentication validation limitation
@@ -937,8 +920,8 @@ Remove SESSION from `claude-code-mcp--sessions'."
   "Start websocker server for claude process KEY running in DIR.
 
 Returns the session object."
-    ;; (if (gethash key claude-code-mcp--sessions)
-    ;;   (error "Websocket server already started for key %s" key)
+  ;; (if (gethash key claude-code-mcp--sessions)
+  ;;   (error "Websocket server already started for key %s" key)
   (let* ((port (claude-code-mcp--find-free-port))
          (auth-token (claude-code-mcp--generate-uuid))
          (session (make-claude-code-mcp--session
@@ -1035,8 +1018,8 @@ Returns the session object."
   (when buffer-file-name
     (let* ((cursor-pos (point))
            (current-state (if (use-region-p)
-                              (list cursor-pos (region-beginning) (region-end))
-                            (list cursor-pos cursor-pos cursor-pos)))
+                              `(,cursor-pos ,(region-beginning) ,(region-end))
+                            `(,cursor-pos ,cursor-pos ,cursor-pos)))
            (state-changed (not (equal current-state claude-code-mcp--last-selection))))
       ;; Only send if state actually changed
       (when state-changed
