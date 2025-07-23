@@ -416,15 +416,22 @@ Searches all sessions for the deferred response."
       (let ((old-temp-buffer (alist-get 'old-temp-buffer diff-info))
             (new-temp-buffer (alist-get 'new-temp-buffer diff-info))
             (diff-buffer (alist-get 'diff-buffer diff-info))
-            (file-exists (alist-get 'file-exists diff-info)))
+            (file-exists (alist-get 'file-exists diff-info))
+            (kill-buffer-query-functions nil))
         ;; Kill the diff buffer
         (when (and diff-buffer (buffer-live-p diff-buffer))
+          (with-current-buffer diff-buffer
+            (set-buffer-modified-p nil))
           (kill-buffer diff-buffer))
         ;; Kill the new temporary buffer
         (when (and new-temp-buffer (buffer-live-p new-temp-buffer))
+          (with-current-buffer new-temp-buffer
+            (set-buffer-modified-p nil))
           (kill-buffer new-temp-buffer))
         ;; Kill the old temporary buffer
         (when (and old-temp-buffer (buffer-live-p old-temp-buffer))
+          (with-current-buffer old-temp-buffer
+            (set-buffer-modified-p nil))
           (kill-buffer old-temp-buffer))
         ;; Remove from opened diffs
         (remhash tab-name opened-diffs)))))
@@ -596,7 +603,9 @@ SESSION is the MCP session for this request."
         ;; Set the major mode based on the file extension
         (when old-path
           (let ((mode (assoc-default old-path auto-mode-alist 'string-match)))
-            (when mode (funcall mode)))))
+            (when mode (funcall mode))))
+        ;; Mark as not modified since this is a temporary buffer
+        (set-buffer-modified-p nil))
 
       ;; Fill the new temp buffer
       (with-current-buffer new-temp-buffer
@@ -607,24 +616,28 @@ SESSION is the MCP session for this request."
         ;; Set the major mode based on the file extension
         (when old-path
           (let ((mode (assoc-default old-path auto-mode-alist 'string-match)))
-            (when mode (funcall mode)))))
+            (when mode (funcall mode))))
+        ;; Mark as not modified since this is a temporary buffer
+        (set-buffer-modified-p nil))
 
       ;; Create the diff
-      (setq diff-buffer (get-buffer-create diff-buffer-name))
+      (setq diff-buffer (get-buffer-create diff-buffer-name t))
       
+      ;; Enable diff-mode with syntax highlighting
+      (let ((diff-font-lock-syntax 'hunk-also)
+            ;; Add --label switches for proper file identification
+            (switches `("-u" "--label" ,old-path "--label" ,(or new-path old-path))))
+        ;; Create the diff
+        (diff-no-select old-temp-buffer new-temp-buffer switches t diff-buffer))
+      
+      ;; Ensure syntax highlighting is enabled
       (with-current-buffer diff-buffer
-        ;; Set read-only before diff-mode
-        (setq buffer-read-only t)
-        ;; Enable diff-mode with syntax highlighting
-        (let ((diff-font-lock-syntax 'hunk-also)
-              ;; Add --label switches for proper file identification
-              (diff-switches (append (if (listp diff-switches)
-                                         diff-switches
-                                       (list diff-switches))
-                                     (list (concat "--label=" old-path)
-                                           (concat "--label=" (or new-path old-path))))))
-          ;; Create the diff
-          (diff-no-select old-temp-buffer new-temp-buffer nil t diff-buffer)))
+        ;; Force font-lock mode
+        (font-lock-mode 1)
+        ;; Ensure diff-font-lock-syntax is set
+        (setq-local diff-font-lock-syntax 'hunk-also)
+        ;; Fontify the buffer
+        (font-lock-ensure))
       
       ;; Display the diff buffer in a pop up window
       (display-buffer diff-buffer
