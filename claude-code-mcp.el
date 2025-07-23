@@ -594,18 +594,10 @@ SESSION is the MCP session for this request."
 
       ;; Fill the old temp buffer
       (with-current-buffer old-temp-buffer
-        (if file-exists
-            (insert-file-contents old-path)
-          ;; New file - leave empty
-          (insert ""))
+        (when file-exists
+          (insert-file-contents old-path))
         ;; Set buffer-file-name to help with mode detection
         (setq-local buffer-file-name old-path)
-        ;; Set the major mode based on the file extension
-        (when old-path
-          (let ((mode (assoc-default old-path auto-mode-alist 'string-match)))
-            (when mode (funcall mode))))
-        ;; Enable font-lock for syntax highlighting
-        (font-lock-mode 1)
         ;; Mark as not modified since this is a temporary buffer
         (set-buffer-modified-p nil))
 
@@ -615,19 +607,11 @@ SESSION is the MCP session for this request."
           (insert new-contents))
         ;; Set buffer-file-name to help with mode detection
         (setq-local buffer-file-name (or new-path old-path))
-        ;; Set the major mode based on the file extension
-        (when old-path
-          (let ((mode (assoc-default old-path auto-mode-alist 'string-match)))
-            (when mode (funcall mode))))
-        ;; Enable font-lock for syntax highlighting
-        (font-lock-mode 1)
         ;; Mark as not modified since this is a temporary buffer
         (set-buffer-modified-p nil))
 
-      ;; Create the diff
-      (setq diff-buffer (get-buffer-create diff-buffer-name t))
-      
       ;; Create the diff with proper switches
+      (setq diff-buffer (get-buffer-create diff-buffer-name t))
       (let ((switches `("-u" "--label" ,old-path "--label" ,(or new-path old-path))))
         (diff-no-select old-temp-buffer new-temp-buffer switches t diff-buffer))
       
@@ -636,26 +620,15 @@ SESSION is the MCP session for this request."
         ;; Set the default directory to help with file resolution
         (setq default-directory (file-name-directory old-path))
         ;; Store file paths for diff-mode to use
-        (setq-local diff-vc-backend nil)  ; Not using VC
+        (setq-local diff-vc-backend nil) ; Not using VC
         (setq-local diff-default-directory default-directory)
         ;; IMPORTANT: Set diff-font-lock-syntax to 'hunk-also BEFORE calling diff-mode
         (setq-local diff-font-lock-syntax 'hunk-also)
-        ;; Force font-lock mode
-        (font-lock-mode 1)
         ;; Re-initialize diff-mode with our settings
-        (diff-mode)
-        ;; Fontify the buffer
-        (font-lock-ensure))
+        (diff-mode))
       
       ;; Display the diff buffer in a pop up window
-      (display-buffer diff-buffer
-                      '((display-buffer-pop-up-window)
-                        ;; (display-buffer-in-side-window)
-                        ;; (side . bottom)
-                        ;; (slot . 0)
-                        ;; (window-height . 0.3)
-                        ;; (preserve-size . (nil . t))
-                        ))
+      (display-buffer diff-buffer '((display-buffer-pop-up-window)))
 
       ;; Store diff info for cleanup later
       (let ((opened-diffs (claude-code-mcp--session-opened-diffs session)))
