@@ -7,7 +7,7 @@
 ;;; Code:
 ;;; Require dependencies
 (require 'cl-lib)
-(require 'diff-mode) ; For diff-no-select
+(require 'diff) ; For diff-no-select
 (require 'json)
 (require 'project) ; For project-current and project-root
 (require 'subr-x) ; For when-let*
@@ -668,12 +668,7 @@ SESSION is the MCP session for this request."
       ;; Display the diff buffer in a pop up window
       (display-buffer diff-buffer
                       '((display-buffer-pop-up-window)
-                        ;; (display-buffer-in-side-window)
-                        ;; (side . bottom)
-                        ;; (slot . 0)
-                        ;; (window-height . 0.3)
-                        ;; (preserve-size . (nil . t))
-                        ))
+                        (post-command-select-window . nil)))
 
       ;; Store diff info for cleanup later
       (let ((opened-diffs (claude-code-mcp--session-opened-diffs session)))
@@ -688,7 +683,7 @@ SESSION is the MCP session for this request."
                    (created-at . ,(current-time)))
                  opened-diffs))
 
-      ;; Set up a timer to check for user response
+      ;; Set up a timer to check for user response - [TODO] why do we need a timer?
       (run-with-timer
        0.5 nil
        (lambda ()
