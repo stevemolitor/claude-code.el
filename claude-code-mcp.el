@@ -627,25 +627,22 @@ SESSION is the MCP session for this request."
       ;; Create the diff
       (setq diff-buffer (get-buffer-create diff-buffer-name t))
       
-      ;; Enable diff-mode with syntax highlighting
-      (let ((diff-font-lock-syntax 'hunk-also)
-            ;; Add --label switches for proper file identification
-            (switches `("-u" "--label" ,old-path "--label" ,(or new-path old-path))))
-        ;; Create the diff
+      ;; Create the diff with proper switches
+      (let ((switches `("-u" "--label" ,old-path "--label" ,(or new-path old-path))))
         (diff-no-select old-temp-buffer new-temp-buffer switches t diff-buffer))
       
-      ;; Ensure syntax highlighting is enabled
+      ;; Configure the diff buffer for syntax highlighting
       (with-current-buffer diff-buffer
         ;; Set the default directory to help with file resolution
         (setq default-directory (file-name-directory old-path))
         ;; Store file paths for diff-mode to use
         (setq-local diff-vc-backend nil)  ; Not using VC
         (setq-local diff-default-directory default-directory)
+        ;; IMPORTANT: Set diff-font-lock-syntax to 'hunk-also BEFORE calling diff-mode
+        (setq-local diff-font-lock-syntax 'hunk-also)
         ;; Force font-lock mode
         (font-lock-mode 1)
-        ;; Ensure diff-font-lock-syntax is set to hunk-also
-        (setq-local diff-font-lock-syntax 'hunk-also)
-        ;; Run diff-mode again to ensure proper initialization
+        ;; Re-initialize diff-mode with our settings
         (diff-mode)
         ;; Fontify the buffer
         (font-lock-ensure))
