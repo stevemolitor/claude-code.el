@@ -430,10 +430,16 @@ Searches all sessions for the deferred response."
             (diff-buffer (alist-get 'diff-buffer diff-info))
             (file-exists (alist-get 'file-exists diff-info))
             (kill-buffer-query-functions nil))
-        ;; Kill the diff buffer
+        ;; Kill the diff buffer and close its window
         (when (and diff-buffer (buffer-live-p diff-buffer))
-          (with-current-buffer diff-buffer
-            (set-buffer-modified-p nil))
+          (let ((diff-window (get-buffer-window diff-buffer)))
+            (with-current-buffer diff-buffer
+              (set-buffer-modified-p nil))
+            ;; [TODO] This window deletion might be problematic if the user configures
+            ;; the diff window to appear in the same slot as the claude buffer.
+            ;; We might need a special case or user option to handle that scenario.
+            (when diff-window
+              (delete-window diff-window)))
           (kill-buffer diff-buffer))
         ;; Kill the new temporary buffer
         (when (and new-temp-buffer (buffer-live-p new-temp-buffer))
