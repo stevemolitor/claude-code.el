@@ -604,6 +604,8 @@ SESSION is the MCP session for this request."
         (when old-path
           (let ((mode (assoc-default old-path auto-mode-alist 'string-match)))
             (when mode (funcall mode))))
+        ;; Enable font-lock for syntax highlighting
+        (font-lock-mode 1)
         ;; Mark as not modified since this is a temporary buffer
         (set-buffer-modified-p nil))
 
@@ -617,6 +619,8 @@ SESSION is the MCP session for this request."
         (when old-path
           (let ((mode (assoc-default old-path auto-mode-alist 'string-match)))
             (when mode (funcall mode))))
+        ;; Enable font-lock for syntax highlighting
+        (font-lock-mode 1)
         ;; Mark as not modified since this is a temporary buffer
         (set-buffer-modified-p nil))
 
@@ -632,10 +636,17 @@ SESSION is the MCP session for this request."
       
       ;; Ensure syntax highlighting is enabled
       (with-current-buffer diff-buffer
+        ;; Set the default directory to help with file resolution
+        (setq default-directory (file-name-directory old-path))
+        ;; Store file paths for diff-mode to use
+        (setq-local diff-vc-backend nil)  ; Not using VC
+        (setq-local diff-default-directory default-directory)
         ;; Force font-lock mode
         (font-lock-mode 1)
-        ;; Ensure diff-font-lock-syntax is set
+        ;; Ensure diff-font-lock-syntax is set to hunk-also
         (setq-local diff-font-lock-syntax 'hunk-also)
+        ;; Run diff-mode again to ensure proper initialization
+        (diff-mode)
         ;; Fontify the buffer
         (font-lock-ensure))
       
