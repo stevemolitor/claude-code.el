@@ -371,95 +371,82 @@ Searches all sessions for the deferred response."
              (accept-changes nil))
 
         ;; Check if diff buffer still exists and is visible
-        (when (and diff-buffer
-                   (buffer-live-p diff-buffer)
+        (when (and diff-buffer (buffer-live-p diff-buffer)
                    (get-buffer-window diff-buffer))
           ;; Ask user
           (setq accept-changes (let ((use-dialog-box nil))
                                  (y-or-n-p "Accept the changes? ")))
 
-          ;; Check if we've already responded
-          (let ((responded (alist-get 'responded diff-info)))
-            (unless responded
-              ;; Mark as responded immediately to prevent double responses
-              (setf (alist-get 'responded diff-info) t)
-              
-              ;; Get the final content before buffers are killed
-              (let ((final-content (when (and accept-changes new-temp-buffer
-                                              (buffer-live-p new-temp-buffer))
-                                     (with-current-buffer new-temp-buffer
-                                       (buffer-string)))))
+          ;; Get the final content before buffers are killed
+          (let ((final-content (when (and accept-changes new-temp-buffer
+                                          (buffer-live-p new-temp-buffer))
+                                 (with-current-buffer new-temp-buffer
+                                   (buffer-string)))))
 
-                ;; Send deferred response using idle timer to ensure clean state
-                (run-with-idle-timer
-                 0 nil
-                 (lambda ()
-                   (condition-case err
-                       (if accept-changes
-                           ;; User accepted changes
-                           (claude-code-mcp--complete-deferred-response
-                            tab-name
-                            `((content . ,(vector (list (cons 'type "text")
-                                                        (cons 'text "FILE_SAVED"))
-                                                  (list (cons 'type "text")
-                                                        (cons 'text final-content))))))
-                         ;; User rejected changes - include tab name like claude-code-ide does
-                         (claude-code-mcp--complete-deferred-response
-                          tab-name
-                          `((content . ,(vector (list (cons 'type "text")
-                                                      (cons 'text "DIFF_REJECTED"))
-                                                (list (cons 'type "text")
-                                                      (cons 'text tab-name)))))))
-                     (error
-                      (claude-code-mcp--log 'out 'diff-response-error
-                                            `((error . ,(error-message-string err))
-                                              (tab-name . ,tab-name)
-                                              (accept-changes . ,accept-changes))
-                                            nil)
-                      (message "Error sending diff response: %s" (error-message-string err))))
-                   
-                   ;; Clean up after sending response
-                   (claude-code-mcp--cleanup-diff tab-name session))))))
+            ;; Clean up the diff
+            (claude-code-mcp--cleanup-diff tab-name session)
+
+            ;; Send deferred response
+            (if accept-changes
+                ;; User accepted changes
+                (claude-code-mcp--complete-deferred-response
+                 tab-name
+                 `((content . ,(vector (list (cons 'type "text")
+                                             (cons 'text "FILE_SAVED"))
+                                       (list (cons 'type "text")
+                                             (cons 'text final-content))))))
+              ;; User rejected changes
+              (claude-code-mcp--complete-deferred-response
+               tab-name
+               `((content . ,(vector (list (cons 'type "text")
+                                           (cons 'text "DIFF_REJECTED"))
+                                     (list (cons 'type "text")
+                                           (cons 'text tab-name))))))
+              
+              ;; Send keepalive ping after a short delay to prevent disconnection
+              (when-let ((client (claude-code-mcp--session-client session)))
+                (run-with-timer 0.2 nil
+                  (lambda ()
+                    ;; Send tools/list_changed notification as keepalive
+                    (claude-code-mcp--send-notification
+                     client
+                     "notifications/tools/list_changed")))))))
 
         ;; If diff buffer is not visible, check again later
-        (when (and diff-buffer (buffer-live-p diff-buffer)
-                   (not (get-buffer-window diff-buffer)))
-          (run-with-timer
-           1.0 nil
-           (lambda ()
-             (claude-code-mcp--handle-diff-response tab-name session)))))))))
+        ;; (when (and diff-buffer (buffer-live-p diff-buffer)
+        ;;            (not (get-buffer-window diff-buffer)))
+        ;;   (run-with-timer
+        ;;    1.0 nil
+        ;;    (lambda ()
+        ;;      (claude-code-mcp--handle-diff-response tab-name session))))
+        ))))
 
 (defun claude-code-mcp--cleanup-diff (tab-name session)
   "Clean up diff session for TAB-NAME in SESSION."
   (let ((opened-diffs (claude-code-mcp--session-opened-diffs session)))
     (when-let ((diff-info (gethash tab-name opened-diffs)))
-      ;; Check if cleanup already started to prevent double cleanup
-      (let ((cleanup-started (alist-get 'cleanup-started diff-info)))
-        (unless cleanup-started
-          ;; Mark cleanup as started immediately
-          (setf (alist-get 'cleanup-started diff-info) t)
-          (let ((old-temp-buffer (alist-get 'old-temp-buffer diff-info))
-                (new-temp-buffer (alist-get 'new-temp-buffer diff-info))
-                (diff-buffer (alist-get 'diff-buffer diff-info))
-                (file-exists (alist-get 'file-exists diff-info))
-                (kill-buffer-query-functions nil))
-            ;; Kill the diff buffer
-            (when (and diff-buffer (buffer-live-p diff-buffer))
-              (with-current-buffer diff-buffer
-                (set-buffer-modified-p nil))
-              (kill-buffer diff-buffer))
-            ;; Kill the new temporary buffer
-            (when (and new-temp-buffer (buffer-live-p new-temp-buffer))
-              (with-current-buffer new-temp-buffer
-                (set-buffer-modified-p nil))
-              (kill-buffer new-temp-buffer))
-            ;; Kill the old temporary buffer
-            (when (and old-temp-buffer (buffer-live-p old-temp-buffer))
-              (with-current-buffer old-temp-buffer
-                (set-buffer-modified-p nil))
-              (kill-buffer old-temp-buffer))
-            ;; Remove from opened diffs
-            (remhash tab-name opened-diffs)))))))
+      (let ((old-temp-buffer (alist-get 'old-temp-buffer diff-info))
+            (new-temp-buffer (alist-get 'new-temp-buffer diff-info))
+            (diff-buffer (alist-get 'diff-buffer diff-info))
+            (file-exists (alist-get 'file-exists diff-info))
+            (kill-buffer-query-functions nil))
+        ;; Kill the diff buffer
+        (when (and diff-buffer (buffer-live-p diff-buffer))
+          (with-current-buffer diff-buffer
+            (set-buffer-modified-p nil))
+          (kill-buffer diff-buffer))
+        ;; Kill the new temporary buffer
+        (when (and new-temp-buffer (buffer-live-p new-temp-buffer))
+          (with-current-buffer new-temp-buffer
+            (set-buffer-modified-p nil))
+          (kill-buffer new-temp-buffer))
+        ;; Kill the old temporary buffer
+        (when (and old-temp-buffer (buffer-live-p old-temp-buffer))
+          (with-current-buffer old-temp-buffer
+            (set-buffer-modified-p nil))
+          (kill-buffer old-temp-buffer))
+        ;; Remove from opened diffs
+        (remhash tab-name opened-diffs)))))
 
 ;;; MCP Tools
 (defun claude-code-mcp--get-tools-list ()
@@ -619,10 +606,18 @@ SESSION is the MCP session for this request."
 
       ;; Fill the old temp buffer
       (with-current-buffer old-temp-buffer
-        (when file-exists
-          (insert-file-contents old-path))
+        (if file-exists
+            (insert-file-contents old-path)
+          ;; New file - leave empty
+          (insert ""))
         ;; Set buffer-file-name to help with mode detection
         (setq-local buffer-file-name old-path)
+        ;; Set the major mode based on the file extension
+        (when old-path
+          (let ((mode (assoc-default old-path auto-mode-alist 'string-match)))
+            (when mode (funcall mode))))
+        ;; Enable font-lock for syntax highlighting
+        (font-lock-mode 1)
         ;; Mark as not modified since this is a temporary buffer
         (set-buffer-modified-p nil))
 
@@ -632,11 +627,19 @@ SESSION is the MCP session for this request."
           (insert new-contents))
         ;; Set buffer-file-name to help with mode detection
         (setq-local buffer-file-name (or new-path old-path))
+        ;; Set the major mode based on the file extension
+        (when old-path
+          (let ((mode (assoc-default old-path auto-mode-alist 'string-match)))
+            (when mode (funcall mode))))
+        ;; Enable font-lock for syntax highlighting
+        (font-lock-mode 1)
         ;; Mark as not modified since this is a temporary buffer
         (set-buffer-modified-p nil))
 
-      ;; Create the diff with proper switches
+      ;; Create the diff
       (setq diff-buffer (get-buffer-create diff-buffer-name t))
+      
+      ;; Create the diff with proper switches
       (let ((switches `("-u" "--label" ,old-path "--label" ,(or new-path old-path))))
         (diff-no-select old-temp-buffer new-temp-buffer switches t diff-buffer))
       
@@ -645,15 +648,26 @@ SESSION is the MCP session for this request."
         ;; Set the default directory to help with file resolution
         (setq default-directory (file-name-directory old-path))
         ;; Store file paths for diff-mode to use
-        (setq-local diff-vc-backend nil) ; Not using VC
+        (setq-local diff-vc-backend nil)  ; Not using VC
         (setq-local diff-default-directory default-directory)
         ;; IMPORTANT: Set diff-font-lock-syntax to 'hunk-also BEFORE calling diff-mode
         (setq-local diff-font-lock-syntax 'hunk-also)
+        ;; Force font-lock mode
+        (font-lock-mode 1)
         ;; Re-initialize diff-mode with our settings
-        (diff-mode))
+        (diff-mode)
+        ;; Fontify the buffer
+        (font-lock-ensure))
       
       ;; Display the diff buffer in a pop up window
-      (display-buffer diff-buffer '((display-buffer-pop-up-window)))
+      (display-buffer diff-buffer
+                      '((display-buffer-pop-up-window)
+                        ;; (display-buffer-in-side-window)
+                        ;; (side . bottom)
+                        ;; (slot . 0)
+                        ;; (window-height . 0.3)
+                        ;; (preserve-size . (nil . t))
+                        ))
 
       ;; Store diff info for cleanup later
       (let ((opened-diffs (claude-code-mcp--session-opened-diffs session)))
@@ -665,12 +679,11 @@ SESSION is the MCP session for this request."
                    (new-file-path . ,new-path)
                    (file-exists . ,file-exists)
                    (session . ,session)
-                   (responded . nil)  ; Track if we've sent a response
                    (created-at . ,(current-time)))
                  opened-diffs))
 
-      ;; Set up an idle timer to check for user response
-      (run-with-idle-timer
+      ;; Set up a timer to check for user response
+      (run-with-timer
        0.5 nil
        (lambda ()
          (claude-code-mcp--handle-diff-response tab-name session)))
@@ -717,28 +730,16 @@ SESSION is the MCP session for tracking opened diffs."
                           (gethash tab-name opened-diffs))))
         (if diff-info
             ;; It's a diff tab - handle appropriately
-            (let ((responded (alist-get 'responded diff-info)))
-              ;; Only clean up if we've already sent a response
-              (if responded
-                  (progn
-                    ;; Clean up the diff
-                    (claude-code-mcp--cleanup-diff tab-name session)
-                    (claude-code-mcp--log 'out 'close-diff-tab-success
-                                          `((tab-name . ,tab-name)
-                                            (result . "TAB_CLOSED"))
-                                          nil)
-                    ;; Return success response
-                    `((content . ,(vector (list (cons 'type "text")
-                                                 (cons 'text "TAB_CLOSED"))))))
-                ;; Haven't responded yet - defer cleanup
-                (progn
-                  (claude-code-mcp--log 'out 'close-diff-tab-deferred
-                                        `((tab-name . ,tab-name)
-                                          (result . "Deferring cleanup - response pending"))
-                                        nil)
-                  ;; Return success but don't clean up yet
-                  `((content . ,(vector (list (cons 'type "text")
-                                               (cons 'text "TAB_CLOSED"))))))))
+            (progn
+              ;; Clean up the diff
+              (claude-code-mcp--cleanup-diff tab-name session)
+              (claude-code-mcp--log 'out 'close-diff-tab-success
+                                    `((tab-name . ,tab-name)
+                                      (result . "TAB_CLOSED"))
+                                    nil)
+              ;; Return success response
+              `((content . ,(vector (list (cons 'type "text")
+                                           (cons 'text "TAB_CLOSED")))))))
         ;; Not a diff - treat tab_name as regular buffer name
         (let ((buffer (get-buffer tab-name)))
           (if buffer
