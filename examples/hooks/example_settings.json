@@ -1,0 +1,52 @@
+{
+  "permissions": {
+    "allow": [],
+    "deny": []
+  },
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tmpfile=$(mktemp); cat > \"$tmpfile\"; /opt/homebrew/bin/emacsclient --eval \"(claude-code-handle-hook 'notification \\\"$CLAUDE_BUFFER_NAME\\\" \\\"$tmpfile\\\")\"; rm \"$tmpfile\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tmpfile=$(mktemp); cat > \"$tmpfile\"; /opt/homebrew/bin/emacsclient --eval \"(claude-code-handle-hook 'stop \\\"$CLAUDE_BUFFER_NAME\\\" \\\"$tmpfile\\\")\"; rm \"$tmpfile\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tmpfile=$(mktemp); cat > \"$tmpfile\"; /opt/homebrew/bin/emacsclient --eval \"(claude-code-handle-hook 'pre-tool-use \\\"$CLAUDE_BUFFER_NAME\\\" \\\"$tmpfile\\\")\"; rm \"$tmpfile\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tmpfile=$(mktemp); cat > \"$tmpfile\"; /opt/homebrew/bin/emacsclient --eval \"(claude-code-handle-hook 'post-tool-use \\\"$CLAUDE_BUFFER_NAME\\\" \\\"$tmpfile\\\")\"; rm \"$tmpfile\""
+          }
+        ]
+      }
+    ]
+  }
+}

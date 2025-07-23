@@ -290,6 +290,100 @@ For Windows, you can use PowerShell to create toast notifications:
 
 *Note: Linux and Windows examples are untested. Feedback and improvements are welcome!*
 
+### Claude Code Hooks Integration
+
+claude-code.el provides integration to **receive** hook events from Claude Code CLI via emacsclient. This handler expects to recieve the buffer name and the location of a temporary file that stores the JSON that Claude Code passes to the hook via stdin.
+
+See ./examples/hooks for some examples.
+
+#### Hook Handler
+
+- `claude-code-hook` - Emacs hook run when Claude Code CLI triggers hooks
+- `claude-code-handle-hook` - Main function that receives hook events from emacsclient. Parameters must be passed in this exact order: `(type buffer-name json-tmpfile &rest args)`
+
+#### Setup
+
+```elisp
+;; Add your hook handlers using standard Emacs functions
+(add-hook 'claude-code-hook 'my-claude-hook-handler)
+```
+
+#### Custom Hook Handler
+
+```elisp
+;; Define your own hook handler function
+(defun my-claude-hook-handler (message)
+  "Custom handler for Claude Code hooks.
+MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
+  (let ((hook-type (plist-get message :type))
+        (buffer-name (plist-get message :buffer-name))
+        (json-data (plist-get message :json-data))
+        (args (plist-get message :args)))
+    (cond 
+     ((eq hook-type 'notification)
+      (message "Claude is ready in %s! JSON: %s" buffer-name json-data)
+      ;; Add your notification logic here
+      )
+     ((eq hook-type 'stop)  
+      (message "Claude finished in %s! JSON: %s" buffer-name json-data)
+      ;; Add your cleanup logic here
+      )
+     ;; Handle other hook types: 'pre-tool-use', 'post-tool-use', etc.
+     (t
+      (message "Claude hook: %s with JSON: %s" hook-type json-data)))))
+
+;; Add the hook handler using standard Emacs hook functions
+(add-hook 'claude-code-hook 'my-claude-hook-handler)
+
+;; Or add multiple handlers
+(add-hook 'claude-code-hook 'my-other-hook-handler)
+(add-hook 'claude-code-hook 'my-third-hook-handler)
+
+;; Remove a handler if needed
+(remove-hook 'claude-code-hook 'my-claude-hook-handler)
+```
+
+#### Claude Code CLI Configuration
+
+Configure Claude Code CLI hooks to call `claude-code-handle-hook` via emacsclient using temporary files for JSON data:
+
+```json
+{
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tmpfile=$(mktemp); cat > \"$tmpfile\"; /opt/homebrew/bin/emacsclient --eval \"(claude-code-handle-hook 'notification \\\"$CLAUDE_BUFFER_NAME\\\" \\\"$tmpfile\\\")\"; rm \"$tmpfile\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tmpfile=$(mktemp); cat > \"$tmpfile\"; /opt/homebrew/bin/emacsclient --eval \"(claude-code-handle-hook 'stop \\\"$CLAUDE_BUFFER_NAME\\\" \\\"$tmpfile\\\")\"; rm \"$tmpfile\""
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The command pattern:
+1. `tmpfile=$(mktemp)` - Create temporary file
+2. `cat > "$tmpfile"` - Write JSON from stdin to temp file  
+3. `emacsclient --eval "..."` - Call `claude-code-handle-hook` with parameters in order: hook-type, buffer-name, temp-file-path
+4. `rm "$tmpfile"` - Clean up temp file
+
+See the [Claude Code hooks documentation](https://docs.anthropic.com/en/docs/claude-code/hooks) for details on setting up CLI hooks.
+
 ## Tips and Tricks
 
 - **Paste images**: Use `C-v` to paste images into the Claude window. Note that on macOS, this is `Control-v`, not `Command-v`.

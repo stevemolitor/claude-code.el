@@ -49,6 +49,11 @@
   :type 'hook
   :group 'claude-code)
 
+(defvar claude-code-hook nil
+  "Hook run when Claude Code CLI triggers hooks.
+Functions in this hook are called with one argument: a plist with :type and
+:buffer-name keys.  Use `add-hook' and `remove-hook' to manage this hook.")
+
 (defcustom claude-code-startup-delay 0.1
   "Delay in seconds after starting Claude before displaying buffer.
 
@@ -485,7 +490,9 @@ PROGRAM is the program to run in the terminal.
 SWITCHES are optional command-line arguments for PROGRAM."
   (claude-code--ensure-eat)
 
-  (let* ((trimmed-buffer-name (string-trim-right (string-trim buffer-name "\\*") "\\*")))
+  (let* ((trimmed-buffer-name (string-trim-right (string-trim buffer-name "\\*") "\\*"))
+         (process-environment (cons (format "CLAUDE_BUFFER_NAME=%s" buffer-name)
+                                    process-environment)))
     (apply #'eat-make trimmed-buffer-name program nil switches)))
 
 (cl-defmethod claude-code--term-send-string ((_backend (eql eat)) string)
@@ -674,6 +681,8 @@ SWITCHES are optional command-line arguments for PROGRAM."
   (let* ((vterm-shell (if switches
                           (concat program " " (mapconcat #'identity switches " "))
                         program))
+         (vterm-environment (cons (format "CLAUDE_BUFFER_NAME=%s" buffer-name)
+                                  vterm-environment))
          (buffer (get-buffer-create buffer-name)))
     (with-current-buffer buffer
       ;; vterm needs to have an open window before starting the claude
@@ -1358,6 +1367,17 @@ MESSAGE is the notification body."
   ;; Pulse the modeline for visual feedback
   (claude-code--pulse-modeline)
   (message "%s: %s" title message))
+
+
+(defun claude-code-handle-hook (type buffer-name json-tmpfile &rest args)
+  "Handle hook of TYPE for BUFFER-NAME with JSON data from JSON-TMPFILE.
+Additional ARGS can be passed for extensibility."
+  (when (file-exists-p json-tmpfile)
+    (let ((json-data (with-temp-buffer
+                       (insert-file-contents json-tmpfile)
+                       (buffer-string))))
+      (let ((message (list :type type :buffer-name buffer-name :json-data json-data :args args)))
+        (run-hook-with-args 'claude-code-hook message)))))
 
 (defun claude-code--notify (_terminal)
   "Notify the user that Claude has finished and is awaiting input.
