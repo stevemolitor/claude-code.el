@@ -1125,8 +1125,9 @@ Returns the selected Claude buffer or nil."
       (progn
         (with-current-buffer claude-code-buffer
           (claude-code--term-send-string claude-code-terminal-backend cmd)
+          (display-buffer claude-code-buffer)
           (claude-code--term-send-string claude-code-terminal-backend (kbd "RET"))
-          (display-buffer claude-code-buffer))
+          (run-with-timer 0.1 nil (lambda () (claude-code-send--send-return))))
         claude-code-buffer)
     (claude-code--show-not-running-message)
     nil))
