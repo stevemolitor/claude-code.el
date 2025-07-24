@@ -116,9 +116,6 @@ in Emacs to connect to an claude process running outside Emacs." )
 (defvar claude-code-mcp--selection-timer nil
   "Timer for debouncing selection updates.")
 
-(defvar claude-code-mcp--last-selection nil
-  "Last selection state to avoid duplicate notifications.")
-
 ;;; Util functions
 (defun claude-code-mcp--generate-uuid ()
   "Generate a UUID v4 string."
@@ -1326,20 +1323,15 @@ Returns the session object."
            (current-state (if (use-region-p)
                               `(,cursor-pos ,(region-beginning) ,(region-end))
                             `(,cursor-pos ,cursor-pos ,cursor-pos)))
-           (state-changed (not (equal current-state claude-code-mcp--last-selection))))
-      ;; Only send if state actually changed
-      (when state-changed
-        (setq claude-code-mcp--last-selection current-state)
-        (let ((selection (claude-code-mcp--get-selection)))
-          ;; Send to all initialized sessions
-          (maphash (lambda (_key session)
-                     (when (and (claude-code-mcp--session-initialized session)
-                                (claude-code-mcp--session-client session))
-                       (claude-code-mcp--send-notification
-                        (claude-code-mcp--session-client session)
-                        "selection_changed"
-                        selection)))
-                   claude-code-mcp--sessions))))))
+           (selection (claude-code-mcp--get-selection)))
+      (maphash (lambda (_key session)
+                 (when (and (claude-code-mcp--session-initialized session)
+                            (claude-code-mcp--session-client session))
+                   (claude-code-mcp--send-notification
+                    (claude-code-mcp--session-client session)
+                    "selection_changed"
+                    selection)))
+               claude-code-mcp--sessions))))
 
 ;;; Hooks
 (defun claude-code-mcp-register-hooks ()
