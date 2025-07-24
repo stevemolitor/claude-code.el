@@ -1017,6 +1017,9 @@ Remove SESSION from `claude-code-mcp--sessions'."
           ;; IDE connected notification
           ("ide_connected"
            (claude-code-mcp--handle-ide-connected session ws id params))
+          ;; Notifications initialized
+          ("notifications/initialized"
+           (claude-code-mcp--send-response ws id '()))
           ;; Unknown method
           (_
            (claude-code-mcp--send-error ws id -32601 (format "Method not found: %s" method))
