@@ -673,17 +673,19 @@ SESSION is the MCP session for tracking opened diffs."
                                   (cons 'text "FILE_SAVED"))
                             (list (cons 'type "text")
                                   (cons 'text new-contents)))))))
+          (message "Claude is applying the changes…")
 
           ;; Clean up the diff
           (claude-code-mcp--cleanup-diff tab-name session)
 
+          ;; Update the selection
+          (when-let ((client (claude-code-mcp--session-client session)))
+            (run-with-timer 0.1 nil
+                            (lambda ()
+                              ;; Send the selection
+                              (claude-code-mcp--send-selection client))))
+          
           ;; Log and return success response
-          (claude-code-mcp--log 'out 'close-diff-tab-success
-                                `((tab-name . ,tab-name)
-                                  (result . "TAB_CLOSED"))
-                                nil)
-
-          ;; Log and return response
           (claude-code-mcp--log 'out 'close-tab-no-buffer
                                 `((tab-name . ,tab-name)
                                   (result . "TAB_CLOSED"))
@@ -840,7 +842,7 @@ This function sends a DIFF_REJECTED response and cleans up the diff."
                                    (cons 'text "DIFF_REJECTED"))
                              (list (cons 'type "text")
                                    (cons 'text tab-name))))))
-      ;; Send selection after a short delay to prevent disconnection
+      ;; Pint after a short delay to prevent disconnection, and update selection
       (when-let ((client (claude-code-mcp--session-client session)))
         (run-with-timer 0.1 nil
                         (lambda ()
