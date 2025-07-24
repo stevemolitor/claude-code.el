@@ -52,7 +52,7 @@
   :type 'boolean
   :group 'claude-code)
 
-(defcustom claude-code-mcp-log-buffer-name "*claude-code mcp log*"
+(defcustom claude-code-mcp-log-buffer-name "*mcp log*"
   "Name of the buffer for MCP logging."
   :type 'string
   :group 'claude-code)
@@ -279,6 +279,12 @@ If PARAMS is not provided, uses an empty hash table."
   (when (and session unique-key id)
     (let ((deferred-responses (claude-code-mcp--session-deferred-responses session)))
       (puthash unique-key id deferred-responses))))
+
+(defun claude-code-mcp--ping (client)
+  "Send tools/list_changed notification as keepalive to CLIENT."
+  (claude-code-mcp--send-notification
+   client
+   "notifications/tools/list_changed"))
 
 (defun claude-code-mcp--complete-deferred-response (unique-key result)
   "Complete a deferred response for UNIQUE-KEY with RESULT.
@@ -583,7 +589,15 @@ _SESSION is the MCP session (unused for this tool)."
           ;; Set diff-font-lock-syntax to 'hunk-also BEFORE calling diff-mode
           (setq-local diff-font-lock-syntax 'hunk-also)
           ;; Re-initialize diff-mode with our settings
-          (diff-mode))
+          (diff-mode)
+          
+          ;; Store tab-name and session for quit handling
+          (setq-local claude-code-mcp--diff-tab-name tab-name)
+          (setq-local claude-code-mcp--diff-session session)
+          
+          ;; Add hooks for handling quit
+          (add-hook 'quit-window-hook #'claude-code-mcp--handle-diff-quit nil t)
+          (add-hook 'kill-buffer-hook #'claude-code-mcp--handle-diff-quit nil t))
 
         ;; Display the diff buffer in a pop up window without selecting it
         (display-buffer diff-buffer
@@ -646,9 +660,8 @@ SESSION is the MCP session for tracking opened diffs."
              (diff-info (when opened-diffs
                           (gethash tab-name opened-diffs))))
         (when diff-info
-          (let ((new-contents (gethash 'new-contents)))
+          (let ((new-contents (alist-get 'new-contents diff-info)))
             ;; complete the deferred response to save the diff
-            (message "xxx saving diff")
             (claude-code-mcp--complete-deferred-response
              tab-name
              `((content . ,(vector
@@ -803,6 +816,45 @@ _SESSION is the MCP session (unused for this tool)."
           (kill-buffer old-temp-buffer))
         ;; Remove from opened diffs
         (remhash tab-name opened-diffs)))))
+
+(defun claude-code-mcp--handle-diff-quit ()
+  "Handle when user quits a diff buffer by pressing 'q'.
+This function sends a DIFF_REJECTED response and cleans up the diff."
+  (when (and (boundp 'claude-code-mcp--diff-tab-name)
+             claude-code-mcp--diff-tab-name
+             (boundp 'claude-code-mcp--diff-session)
+             claude-code-mcp--diff-session
+             (not (boundp 'claude-code-mcp--diff-cleanup-done)))
+    ;; Set flag to prevent double cleanup
+    (setq-local claude-code-mcp--diff-cleanup-done t)
+    (let ((tab-name claude-code-mcp--diff-tab-name)
+          (session claude-code-mcp--diff-session))
+      ;; Send DIFF_REJECTED response
+      (claude-code-mcp--complete-deferred-response
+       tab-name
+       `((content . ,(vector (list (cons 'type "text")
+                                   (cons 'text "DIFF_REJECTED"))
+                             (list (cons 'type "text")
+                                   (cons 'text tab-name))))))
+      ;; Send selection after a short delay to prevent disconnection
+      (when-let ((client (claude-code-mcp--session-client session)))
+        (run-with-timer 0.1 nil
+                        (lambda ()
+                          ;; Send tools/list_changed notification as keepalive
+                          (claude-code-mcp--ping client)
+                          ;; Send the selection
+                          (when (and buffer-file-name
+                                     (buffer-live-p (current-buffer)))
+                            (let ((selection (claude-code-mcp--get-selection)))
+                              (when selection
+                                (claude-code-mcp--send-notification
+                                 client
+                                 "selection_changed"
+                                 selection)))))))
+
+      ;; Clean up the diff
+      ;; (claude-code-mcp--cleanup-diff tab-name session)
+      )))
 
 (defun claude-code-mcp--tool-close-all-diff-tabs (_params session)
   "Close all diff tabs created by Claude.
