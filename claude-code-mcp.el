@@ -44,7 +44,7 @@
 (defconst claude-code-mcp--port-max 65535 "Maximum port number for WebSocket server.")
 (defconst claude-code-mcp--protocol-version "2024-11-05" "MCP protocol version supported.")
 (defconst claude-code-mcp--selection-delay 0.05 "Delay in seconds before sending selection update.")
-(defconst claude-code-mcp--initial-notification-delay 0.1 "Delay before sending initial notifications after connection.")
+(defconst claude-code-mcp--initial-notification-delay 0.01 "Delay before sending initial notifications after connection.")
 
 ;;; Customization variables
 (defcustom claude-code-mcp-enable-logging nil
@@ -383,6 +383,27 @@ Searches all sessions for the deferred response."
       (claude-code-mcp--send-error
        ws id -32602
        (format "Resource not found: %s" uri)))))
+
+(defun claude-code-mcp--handle-ide-connected (session ws id _params)
+  "Handle ide_connected notification from Claude Code.
+This is sent when Claude Code has successfully connected to the IDE.
+We use this opportunity to send the initial selection state."
+  ;; Send acknowledgment response
+  (claude-code-mcp--send-response ws id '())
+  
+  ;; Send initial selection state after a short delay
+  (when-let ((client (claude-code-mcp--session-client session)))
+    (run-with-timer claude-code-mcp--initial-notification-delay nil
+                    (lambda ()
+                      ;; Send current selection if we have a file buffer
+                      (when (and buffer-file-name
+                                 (buffer-live-p (current-buffer)))
+                        (let ((selection (claude-code-mcp--get-selection)))
+                          (when selection
+                            (claude-code-mcp--send-notification
+                             client
+                             "selection_changed"
+                             selection))))))))
 
 ;;; Diffs
 (defun claude-code-mcp--handle-diff-response (tab-name session)
@@ -1247,6 +1268,9 @@ Remove SESSION from `claude-code-mcp--sessions'."
           ;; Resources read
           ("resources/read"
            (claude-code-mcp--handle-resources-read session ws id params))
+          ;; IDE connected notification
+          ("ide_connected"
+           (claude-code-mcp--handle-ide-connected session ws id params))
           ;; Unknown method
           (_
            (claude-code-mcp--send-error ws id -32601 (format "Method not found: %s" method))
