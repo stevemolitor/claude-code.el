@@ -575,8 +575,176 @@ _SESSION is the MCP session (unused for this tool)."
      `((content . ,(vector (list (cons 'type "text")
                                  (cons 'text (format "Error opening file: %s" (error-message-string err))))))))))
 
-;; Diff tool implementation using diff-no-select
+;; simplified diff tool
+;; (defun claude-code-mcp--tool-open-diff-simplified (params session)
+;;     "Simplified diff tool that always accepts changes.
+;;   PARAMS contains old_file_path, new_file_path, new_file_contents, tab_name.
+;;   SESSION is the MCP session for this request."
+;;     (let ((old-path (alist-get 'old_file_path params))
+;;           (new-contents (alist-get 'new_file_contents params))
+;;           (tab-name (alist-get 'tab_name params)))
+
+;;       ;; Validate parameters
+;;       (unless (and old-path new-contents tab-name session)
+;;         (error "Missing required parameters"))
+
+;;       ;; Create a simple diff buffer to show what's happening
+;;       (let ((diff-buffer (get-buffer-create (format "*Simple Diff: %s*" tab-name))))
+;;         (with-current-buffer diff-buffer
+;;           (erase-buffer)
+;;           (insert "=== Simplified Diff (Auto-Accept) ===\n")
+;;           (insert (format "File: %s\n" old-path))
+;;           (insert "New contents will be returned immediately.\n")
+;;           (insert "=====================================\n"))
+
+;;         ;; Display it briefly
+;;         (display-buffer diff-buffer)
+
+;;         ;; Schedule immediate completion (simulating async acceptance)
+;;         (run-with-timer 0.1 nil
+;;           (lambda ()
+;;             ;; Clean up the diff buffer
+;;             (when (buffer-live-p diff-buffer)
+;;               (kill-buffer diff-buffer))
+
+;;             ;; Complete the deferred response with acceptance
+;;             (claude-code-mcp--complete-deferred-response
+;;              tab-name
+;;              `((content . ,(vector
+;;                             (list (cons 'type "text")
+;;                                   (cons 'text "FILE_SAVED"))
+;;                             (list (cons 'type "text")
+;;                                   (cons 'text new-contents))))))))
+
+;;       ;; Return deferred response indicator
+;;       `((deferred . t)
+;;         (unique-key . ,tab-name)))))
+
 (defun claude-code-mcp--tool-open-diff (params session)
+  "Simplified diff tool that prompts user to accept/reject changes.
+  PARAMS contains old_file_path, new_file_path, new_file_contents, tab_name.
+  SESSION is the MCP session for this request."
+  (let ((old-path (alist-get 'old_file_path params))
+        (new-path (alist-get 'new_file_path params))
+        (new-contents (alist-get 'new_file_contents params))
+        (tab-name (alist-get 'tab_name params)))
+
+    (unless (and old-path new-contents tab-name session)
+      (error "Missing required parameters"))
+
+    (let ((file-exists (file-exists-p old-path))
+          (old-temp-buffer (generate-new-buffer
+                            (format "*%s-old*" (file-name-nondirectory old-path))))
+          (new-temp-buffer (generate-new-buffer
+                            (format "*%s-new*" (file-name-nondirectory old-path)))))
+
+      ;; Fill the old temp buffer
+      (with-current-buffer old-temp-buffer
+        (if file-exists
+            (insert-file-contents old-path)
+          ;; New file - leave empty
+          (insert ""))
+        ;; Set buffer-file-name to help with mode detection
+        (setq-local buffer-file-name old-path)
+        ;; Mark as not modified since this is a temporary buffer
+        (set-buffer-modified-p nil))
+
+      ;; Fill the new temp buffer
+      (with-current-buffer new-temp-buffer
+        (when new-contents
+          (insert new-contents))
+        ;; Set buffer-file-name to help with mode detection
+        (setq-local buffer-file-name (or new-path old-path))
+        ;; Mark as not modified since this is a temporary buffer
+        (set-buffer-modified-p nil))
+
+      ;; Create the diff
+      ;; [TODO] make buffer name include with claude
+      (let* ((diff-buffer-name (format "*Diff: %s*" tab-name))
+             (diff-buffer (get-buffer-create diff-buffer-name t))
+             (switches `("-u" "--label" ,old-path "--label" ,(or new-path old-path))))
+        ;; Create diff via diff-no-select
+        (diff-no-select old-temp-buffer new-temp-buffer switches t diff-buffer)
+        ;; Configure the diff buffer for syntax highlighting
+        (with-current-buffer diff-buffer
+          ;; Set the default directory to help with file resolution
+          (setq default-directory (file-name-directory old-path))
+          ;; Store file paths for diff-mode to use
+          (setq-local diff-vc-backend nil) ; Not using VC
+          (setq-local diff-default-directory default-directory)
+          ;; IMPORTANT: Set diff-font-lock-syntax to 'hunk-also BEFORE calling diff-mode
+          (setq-local diff-font-lock-syntax 'hunk-also)
+          ;; Re-initialize diff-mode with our settings
+          (diff-mode))
+
+        ;; Display the diff buffer in a pop up window
+        (display-buffer diff-buffer
+                        '((display-buffer-pop-up-window)
+                          (post-command-select-window . nil)))
+
+        ;; Schedule the diff prompt to happen after returning deferred response
+        (run-with-timer
+         0.01 nil ; Increased delay for better stability [TODO] can we lower it?
+         (lambda ()
+           (let* ((use-dialog-box nil)
+                  (accepted-p (y-or-n-p "Accept changes?"))
+                  (response (if accepted-p
+                                `((content . ,(vector
+                                               (list (cons 'type "text")
+                                                     (cons 'text "FILE_SAVED"))
+                                               (list (cons 'type "text")
+                                                     (cons 'text new-contents)))))
+                              `((content . ,(vector (list (cons 'type "text")
+                                                          (cons 'text "DIFF_REJECTED"))
+                                                    (list (cons 'type "text")
+                                                          (cons 'text tab-name))))))))
+             ;; For rejection, send keepalive BEFORE the response
+             (when (not accepted-p)
+               (when-let ((client (claude-code-mcp--session-client session)))
+                 ;; Send keepalive immediately
+                 (claude-code-mcp--send-notification
+                  client
+                  "notifications/tools/list_changed")
+                 ;; Small delay before sending rejection response
+                 (run-with-timer 0.1 nil
+                                 (lambda ()
+                                   (claude-code-mcp--complete-deferred-response tab-name response)
+                                   ;; Send another keepalive after response
+                                   (run-with-timer 0.2 nil
+                                                   (lambda ()
+                                                     (claude-code-mcp--send-notification
+                                                      client
+                                                      "notifications/tools/list_changed")))))))
+
+             ;; For acceptance, send response immediately
+             (when accepted-p
+               (claude-code-mcp--complete-deferred-response tab-name response)))
+
+           ;; Kill the diff buffer and close its window
+           (when (and diff-buffer (buffer-live-p diff-buffer))
+             (let ((diff-window (get-buffer-window diff-buffer)))
+               (with-current-buffer diff-buffer
+                 (set-buffer-modified-p nil))
+               (when diff-window
+                 (delete-window diff-window)))
+             (kill-buffer diff-buffer))
+           ;; Kill the new temporary buffer
+           (when (and new-temp-buffer (buffer-live-p new-temp-buffer))
+             (with-current-buffer new-temp-buffer
+               (set-buffer-modified-p nil))
+             (kill-buffer new-temp-buffer))
+           ;; Kill the old temporary buffer
+           (when (and old-temp-buffer (buffer-live-p old-temp-buffer))
+             (with-current-buffer old-temp-buffer
+               (set-buffer-modified-p nil))
+             (kill-buffer old-temp-buffer))))))
+
+    ;; Return deferred response indicator
+    `((deferred . t)
+      (unique-key . ,tab-name))))
+
+;; Diff tool implementation using diff-no-select
+(defun claude-code-mcp--tool-open-diff-complicated (params session)
   "Open a diff view using diff-no-select.
 PARAMS contains old_file_path, new_file_path, new_file_contents, tab_name.
 SESSION is the MCP session for this request."
@@ -654,7 +822,7 @@ SESSION is the MCP session for this request."
         ;; Set the default directory to help with file resolution
         (setq default-directory (file-name-directory old-path))
         ;; Store file paths for diff-mode to use
-        (setq-local diff-vc-backend nil)  ; Not using VC
+        (setq-local diff-vc-backend nil) ; Not using VC
         (setq-local diff-default-directory default-directory)
         ;; IMPORTANT: Set diff-font-lock-syntax to 'hunk-also BEFORE calling diff-mode
         (setq-local diff-font-lock-syntax 'hunk-also)
@@ -851,7 +1019,6 @@ SESSION is the MCP session containing opened diffs."
                    (claude-code-mcp--cleanup-diff tab-name session)
                    (setq closed-count (1+ closed-count)))
                  opened-diffs)))
-    (message "Claude Code: Closed %d diff tabs" closed-count)
     ;; Return success with actual count
     `((content . ,(vector (list (cons 'type "text")
                                     (cons 'text (format "CLOSED_%d_DIFF_TABS" closed-count))))))))
@@ -973,22 +1140,17 @@ _SESSION is the MCP session (unused for this tool)."
 Put client WS in SESSION structure, so we can use it to send messages to
 claude later."
   ;; Add immediate message to see if connection happens
-  (message "MCP: WebSocket connection opened on port %d" (claude-code-mcp--session-port session))
   (setf (claude-code-mcp--session-client session) ws)
   (claude-code-mcp--log 'in 'connection-opened
                         `((port . ,(claude-code-mcp--session-port session))
                           (key . ,(claude-code-mcp--session-key session)))
-                        nil)
-  (message "Claude Code connected to MCP server on port %d" (claude-code-mcp--session-port session)))
+                        nil))
 
 (defun claude-code-mcp--on-close-server (session _ws)
   "Handle WebSocket WS close for SESSION.
 
 Remove SESSION from `claude-code-mcp--sessions'."
   ;; Add immediate message to track disconnections
-  (message "MCP: WebSocket connection CLOSED on port %d for key %s"
-           (claude-code-mcp--session-port session)
-           (claude-code-mcp--session-key session))
   (let ((key (claude-code-mcp--session-key session))
         (port (claude-code-mcp--session-port session)))
     ;; Mark as not initialized
@@ -1004,8 +1166,7 @@ Remove SESSION from `claude-code-mcp--sessions'."
     (when (and claude-code-mcp--selection-timer
                (= 0 (hash-table-count claude-code-mcp--sessions)))
       (cancel-timer claude-code-mcp--selection-timer)
-      (setq claude-code-mcp--selection-timer nil))
-    (message "server running on port %d closed" port)))
+      (setq claude-code-mcp--selection-timer nil))))
 
 (defun claude-code-mcp--on-error-server (session _ws action error)
   "Handle WebSocket error for SESSION with WS during ACTION with ERROR."
@@ -1027,9 +1188,6 @@ Remove SESSION from `claude-code-mcp--sessions'."
 
 (defun claude-code-mcp--on-message (session ws frame)
   "Handle JSON-RPC messsage from WS FRAME for SESSION."
-  ;; Add immediate logging to see if we're receiving messages
-  (when claude-code-mcp-enable-logging
-    (message "MCP: Received websocket message"))
   (condition-case err
       (let* ((payload (websocket-frame-text frame))
              (message (condition-case json-err
@@ -1073,7 +1231,6 @@ Remove SESSION from `claude-code-mcp--sessions'."
   "Start websocker server for claude process KEY running in DIR.
 
 Returns the session object."
-  (message "MCP: Starting server for key '%s' in dir '%s'" key dir)
   (let* ((port (claude-code-mcp--find-free-port))
          (auth-token (claude-code-mcp--generate-uuid))
          (session (make-claude-code-mcp--session
@@ -1083,7 +1240,6 @@ Returns the session object."
                    :auth-token auth-token
                    :opened-diffs (make-hash-table :test 'equal)
                    :deferred-responses (make-hash-table :test 'equal))))
-    (message "MCP: Allocated port %d for server" port)
     (condition-case err
         (let ((server (websocket-server
                        port
@@ -1110,7 +1266,6 @@ Returns the session object."
           (claude-code-mcp-register-hooks)
 
           ;; Return session
-          (message "MCP server started on port %d" port)
           session)
       (error
        (message "Failed to start MCP server: %s" (error-message-string err))
@@ -1208,8 +1363,7 @@ Returns the session object."
       (progn
         ;; Remove lockfile before closing server
         (claude-code-mcp--remove-lockfile port)
-        (websocket-server-close server)
-        (message "Stopped websocket server for buffer %s" (buffer-name)))
+        (websocket-server-close server))
     (message "No websocket server running for buffer %s" (buffer-name))))
 
 (defun claude-code-mcp-stop-all-servers ()
@@ -1227,8 +1381,7 @@ Returns the session object."
     (clrhash claude-code-mcp--sessions)
     (when claude-code-mcp--selection-timer
       (cancel-timer claude-code-mcp--selection-timer)
-      (setq claude-code-mcp--selection-timer nil))
-    (message "Stopped %d MCP servers" count)))
+      (setq claude-code-mcp--selection-timer nil))))
 
 (defun claude-code-mcp-cleanup-orphaned-lockfiles ()
   "Clean up lockfiles for ports that are no longer in use."
@@ -1249,8 +1402,7 @@ Returns the session object."
               (progn
                 (delete-file lockfile)
                 (cl-incf cleaned))
-            (error nil)))))
-    (message "Cleaned up %d orphaned lockfiles" cleaned)))
+            (error nil)))))))
 
 ;;; Cleanup functions
 (defun claude-code-mcp--cleanup-session (key)
@@ -1266,8 +1418,7 @@ Returns the session object."
     (remhash key claude-code-mcp--sessions)
     ;; Remove hooks if no more sessions
     (when (= 0 (hash-table-count claude-code-mcp--sessions))
-      (remove-hook 'post-command-hook #'claude-code-mcp--track-selection-change))
-    (message "Cleaned up MCP session for %s" key)))
+      (remove-hook 'post-command-hook #'claude-code-mcp--track-selection-change))))
 
 (defun claude-code-mcp--cleanup-on-exit ()
   "Clean up all MCP sessions and lockfiles on Emacs exit."
