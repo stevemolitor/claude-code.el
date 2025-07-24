@@ -1159,7 +1159,8 @@ Returns the selected Claude buffer or nil."
           (sit-for 0.1)
           ;; Send Return
           (claude-code--term-send-string claude-code-terminal-backend (kbd "RET"))
-          (display-buffer claude-code-buffer))
+          (display-buffer claude-code-buffer)
+          (run-with-timer 0.1 nil (lambda () (claude-code-send--send-return))))
         claude-code-buffer)
     (claude-code--show-not-running-message)
     nil))

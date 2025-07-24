@@ -273,6 +273,10 @@ If PARAMS is not provided, uses an empty hash table."
                                      (method . ,method))
                                    nil))))))))
 
+(defun claude-code-mcp--status-message (msg)
+  (message msg)
+  (run-with-idle-timer 2 nil (lambda () (message nil))))
+
 ;;; Deferred Response Support
 (defun claude-code-mcp--store-deferred-response (session unique-key id)
   "Store a deferred response for UNIQUE-KEY with request ID in SESSION."
@@ -538,8 +542,8 @@ _SESSION is the MCP session (unused for this tool)."
 
 (defun claude-code-mcp--tool-open-diff (params session)
   "Simplified diff tool that prompts user to accept/reject changes.
-  PARAMS contains old_file_path, new_file_path, new_file_contents, tab_name.
-  SESSION is the MCP session for this request."
+PARAMS contains old_file_path, new_file_path, new_file_contents, tab_name.
+SESSION is the MCP session for this request."
   (let ((old-path (alist-get 'old_file_path params))
         (new-path (alist-get 'new_file_path params))
         (new-contents (alist-get 'new_file_contents params))
@@ -599,16 +603,21 @@ _SESSION is the MCP session (unused for this tool)."
           (setq-local claude-code-mcp--diff-tab-name tab-name)
           (setq-local claude-code-mcp--diff-session session)
           
+          ;; Add keybinding for accepting changes
+          (local-set-key (kbd "y") 'claude-code-mcp--handle-diff-accept)
+          
           ;; Add hooks for handling quit
           (add-hook 'quit-window-hook #'claude-code-mcp--handle-diff-quit nil t)
           (add-hook 'kill-buffer-hook #'claude-code-mcp--handle-diff-quit nil t))
 
-        ;; Display the diff buffer in a pop up window without selecting it
-        (display-buffer diff-buffer
-                        '((display-buffer-pop-up-window)
-                          ;; [TODO] do we need inhibit-switch-frame
-                          (inhibit-switch-frame . t)))
+        ;; Display the diff buffer and switch to it
+        (let ((diff-window (display-buffer diff-buffer
+                                           '((display-buffer-pop-up-window)))))
+          ;; Switch to the diff window
+          (when diff-window
+            (select-window diff-window)))
 
+        (message "Type \"y\" in the diff buffer to tell Claude to accept changes, or \"q\" to reject the changes")
         ;; Store diff info for cleanup later
         (let ((opened-diffs (claude-code-mcp--session-opened-diffs session)))
           (puthash tab-name
@@ -673,8 +682,7 @@ SESSION is the MCP session for tracking opened diffs."
                                   (cons 'text "FILE_SAVED"))
                             (list (cons 'type "text")
                                   (cons 'text new-contents)))))))
-          (message "Claude is applying the changes…")
-
+          
           ;; Clean up the diff
           (claude-code-mcp--cleanup-diff tab-name session)
 
@@ -842,6 +850,7 @@ This function sends a DIFF_REJECTED response and cleans up the diff."
                                    (cons 'text "DIFF_REJECTED"))
                              (list (cons 'type "text")
                                    (cons 'text tab-name))))))
+      (claude-code-mcp--status-message "Claude is rejecting the change…")
       ;; Pint after a short delay to prevent disconnection, and update selection
       (when-let ((client (claude-code-mcp--session-client session)))
         (run-with-timer 0.1 nil
@@ -854,6 +863,51 @@ This function sends a DIFF_REJECTED response and cleans up the diff."
       ;; Clean up the diff
       ;; (claude-code-mcp--cleanup-diff tab-name session)
       )))
+
+(defun claude-code-mcp--handle-diff-accept ()
+  "Handle when user accepts a diff by pressing 'y'.
+This function applies the changes, sends a FILE_SAVED response, and cleans up."
+  (interactive)
+  (when (and (boundp 'claude-code-mcp--diff-tab-name)
+             claude-code-mcp--diff-tab-name
+             (boundp 'claude-code-mcp--diff-session)
+             claude-code-mcp--diff-session
+             (not (boundp 'claude-code-mcp--diff-cleanup-done)))
+    ;; Set flag to prevent double cleanup
+    (setq-local claude-code-mcp--diff-cleanup-done t)
+    (let* ((tab-name claude-code-mcp--diff-tab-name)
+           (session claude-code-mcp--diff-session)
+           (opened-diffs (claude-code-mcp--session-opened-diffs session))
+           (diff-info (gethash tab-name opened-diffs)))
+      (when diff-info
+        (let ((new-contents (alist-get 'new-contents diff-info))
+              (old-file-path (alist-get 'old-file-path diff-info))
+              (file-exists (alist-get 'file-exists diff-info)))
+          ;; Write the new contents to the file
+          (with-temp-buffer
+            (insert new-contents)
+            (write-region (point-min) (point-max) old-file-path nil 'silent))
+          
+          ;; Send FILE_SAVED response
+          (claude-code-mcp--complete-deferred-response
+           tab-name
+           `((content . ,(vector
+                          (list (cons 'type "text")
+                                (cons 'text "FILE_SAVED"))
+                          (list (cons 'type "text")
+                                (cons 'text new-contents))))))
+          
+          (claude-code-mcp--status-message "Claude is applying the changes…")
+          
+          ;; Clean up the diff
+          (claude-code-mcp--cleanup-diff tab-name session)
+          
+          ;; Update the selection after a short delay
+          (when-let ((client (claude-code-mcp--session-client session)))
+            (run-with-timer 0.1 nil
+                            (lambda ()
+                              ;; Send the selection
+                              (claude-code-mcp--send-selection client)))))))))
 
 (defun claude-code-mcp--tool-close-all-diff-tabs (_params session)
   "Close all diff tabs created by Claude.
