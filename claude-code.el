@@ -49,6 +49,11 @@
   :type 'hook
   :group 'claude-code)
 
+(defvar claude-code-event-hook nil
+  "Hook run when Claude Code CLI triggers events.
+Functions in this hook are called with one argument: a plist with :type and
+:buffer-name keys.  Use `add-hook' and `remove-hook' to manage this hook.")
+
 (defcustom claude-code-startup-delay 0.1
   "Delay in seconds after starting Claude before displaying buffer.
 
@@ -303,6 +308,9 @@ between reducing flickering and maintaining responsiveness."
 (declare-function flycheck-error-line "flycheck")
 (declare-function flycheck-error-message "flycheck")
 
+;;;; Forward declarations for server
+(defvar server-eval-args-left)
+
 ;;;; Internal state variables
 (defvar claude-code--directory-buffer-map (make-hash-table :test 'equal)
   "Hash table mapping directories to user-selected Claude buffers.
@@ -485,7 +493,9 @@ PROGRAM is the program to run in the terminal.
 SWITCHES are optional command-line arguments for PROGRAM."
   (claude-code--ensure-eat)
 
-  (let* ((trimmed-buffer-name (string-trim-right (string-trim buffer-name "\\*") "\\*")))
+  (let* ((trimmed-buffer-name (string-trim-right (string-trim buffer-name "\\*") "\\*"))
+         (process-environment (cons (format "CLAUDE_BUFFER_NAME=%s" buffer-name)
+                                    process-environment)))
     (apply #'eat-make trimmed-buffer-name program nil switches)))
 
 (cl-defmethod claude-code--term-send-string ((_backend (eql eat)) string)
@@ -674,6 +684,8 @@ SWITCHES are optional command-line arguments for PROGRAM."
   (let* ((vterm-shell (if switches
                           (concat program " " (mapconcat #'identity switches " "))
                         program))
+         (process-environment (cons (format "CLAUDE_BUFFER_NAME=%s" buffer-name)
+                                    process-environment))
          (buffer (get-buffer-create buffer-name)))
     (with-current-buffer buffer
       ;; vterm needs to have an open window before starting the claude
@@ -1359,6 +1371,20 @@ MESSAGE is the notification body."
   (claude-code--pulse-modeline)
   (message "%s: %s" title message))
 
+(defun claude-code-handle-hook (type buffer-name &rest args)
+  "Handle hook of TYPE for BUFFER-NAME with JSON data and additional ARGS.
+This is the unified entry point for all Claude Code CLI hooks.
+ARGS can contain additional arguments passed from the CLI."
+  ;; Must consume ALL arguments from server-eval-args-left to prevent Emacs
+  ;; from trying to evaluate leftover arguments as Lisp expressions
+  (let ((json-data (when server-eval-args-left (pop server-eval-args-left)))
+        (extra-args (prog1 server-eval-args-left (setq server-eval-args-left nil))))
+    (let ((message (list :type type 
+                         :buffer-name buffer-name 
+                         :json-data json-data 
+                         :args (append args extra-args))))
+      (run-hook-with-args 'claude-code-event-hook message))))
+
 (defun claude-code--notify (_terminal)
   "Notify the user that Claude has finished and is awaiting input.
 
@@ -1699,10 +1725,10 @@ With two prefix ARGs, both add instructions and switch to Claude buffer."
   (let ((file-path (claude-code--get-buffer-file-name)))
     (if file-path
         (let* ((prompt (when arg
-                        (read-string "Instructions for Claude: ")))
+                         (read-string "Instructions for Claude: ")))
                (command (if prompt
-                           (format "%s\n\n@%s" prompt file-path)
-                         (format "@%s" file-path))))
+                            (format "%s\n\n@%s" prompt file-path)
+                          (format "@%s" file-path))))
           (let ((selected-buffer (claude-code--do-send-command command)))
             (when (and (equal arg '(16)) selected-buffer) ; Only switch buffer with C-u C-u
               (pop-to-buffer selected-buffer))))

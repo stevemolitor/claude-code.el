@@ -290,6 +290,114 @@ For Windows, you can use PowerShell to create toast notifications:
 
 *Note: Linux and Windows examples are untested. Feedback and improvements are welcome!*
 
+### Claude Code Hooks Integration
+
+claude-code.el provides integration to **receive** hook events from Claude Code CLI via emacsclient. 
+
+See [`examples/hooks/claude-code-hook-examples.el`](examples/hooks/claude-code-hook-examples.el) for comprehensive examples of hook listeners and setup functions.
+
+#### Hook API
+
+- `claude-code-event-hook` - Emacs hook run when Claude Code CLI triggers events
+- `claude-code-handle-hook` - **Unified entry point** for all Claude Code CLI hooks. Call this from your CLI hooks with `(type buffer-name &rest args)` and JSON data as additional emacsclient arguments
+
+#### Setup
+
+Before configuring hooks, you need to start the Emacs server so that `emacsclient` can communicate with your Emacs instance:
+
+```elisp
+;; Start the Emacs server (add this to your init.el)
+(start-server)
+
+;; Add your hook listeners using standard Emacs functions
+(add-hook 'claude-code-event-hook 'my-claude-hook-listener)
+```
+
+#### Custom Hook Listener
+
+Hook listeners receive a message plist with these keys:
+- `:type` - Hook type (e.g., `'notification`, `'stop`, `'pre-tool-use`, `'post-tool-use`)
+- `:buffer-name` - Claude buffer name from `$CLAUDE_BUFFER_NAME`
+- `:json-data` - JSON payload from Claude CLI
+- `:args` - List of additional arguments (when using extended configuration)
+
+```elisp
+;; Define your own hook listener function
+(defun my-claude-hook-listener (message)
+  "Custom listener for Claude Code hooks.
+MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
+  (let ((hook-type (plist-get message :type))
+        (buffer-name (plist-get message :buffer-name))
+        (json-data (plist-get message :json-data))
+        (args (plist-get message :args)))
+    (cond 
+     ((eq hook-type 'notification)
+      (message "Claude is ready in %s! JSON: %s" buffer-name json-data))
+     ((eq hook-type 'stop)  
+      (message "Claude finished in %s! JSON: %s" buffer-name json-data))
+     (t
+      (message "Claude hook: %s with JSON: %s" hook-type json-data)))))
+
+;; Add the hook listener using standard Emacs hook functions
+(add-hook 'claude-code-event-hook 'my-claude-hook-listener)
+```
+
+See the examples file for complete listeners that demonstrate notifications, logging, org-mode integration, and using extra arguments from the `:args` field.
+
+#### Claude Code CLI Configuration
+
+Configure Claude Code CLI hooks to call `claude-code-handle-hook` via emacsclient by passing JSON data as an additional argument:
+
+```json
+{
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "emacsclient --eval \"(claude-code-handle-hook 'notification \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "emacsclient --eval \"(claude-code-handle-hook 'stop \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\""
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The command pattern:  
+```bash
+emacsclient --eval "(claude-code-handle-hook 'notification \"$CLAUDE_BUFFER_NAME\")" "$(cat)" "ARG1" "ARG2" "ARG3"
+```
+
+Where:
+- `"$(cat)"` - JSON data from stdin (always required)
+- `ARG1` is `"$PWD"` - current working directory  
+- `ARG2` is `"$(date -Iseconds)"` - timestamp
+- `ARG3` is `"$$"` - process ID
+
+`claude-code-handle-hook` creates a message plist sent to listeners:
+```elisp
+(list :type 'notification 
+      :buffer-name "$CLAUDE_BUFFER_NAME"
+      :json-data "$(cat)" 
+      :args '("ARG1" "ARG2" "ARG3"))
+```
+
+See the [Claude Code hooks documentation](https://docs.anthropic.com/en/docs/claude-code/hooks) for details on setting up CLI hooks.
+
 ## Tips and Tricks
 
 - **Paste images**: Use `C-v` to paste images into the Claude window. Note that on macOS, this is `Control-v`, not `Command-v`.
