@@ -292,28 +292,39 @@ For Windows, you can use PowerShell to create toast notifications:
 
 ### Claude Code Hooks Integration
 
-claude-code.el provides integration to **receive** hook events from Claude Code CLI via emacsclient. This handler expects to recieve the buffer name and the location of a temporary file that stores the JSON that Claude Code passes to the hook via stdin.
+claude-code.el provides integration to **receive** hook events from Claude Code CLI via emacsclient. 
 
-See ./examples/hooks for some examples.
+See [`examples/hooks/claude-code-hook-examples.el`](examples/hooks/claude-code-hook-examples.el) for comprehensive examples of hook listeners and setup functions.
 
-#### Hook Handler
+#### Hook API
 
-- `claude-code-hook` - Emacs hook run when Claude Code CLI triggers hooks
-- `claude-code-handle-hook` - Main function that receives hook events from emacsclient. Parameters must be passed in this exact order: `(type buffer-name json-tmpfile &rest args)`
+- `claude-code-event-hook` - Emacs hook run when Claude Code CLI triggers events
+- `claude-code-handle-hook` - **Unified entry point** for all Claude Code CLI hooks. Call this from your CLI hooks with `(type buffer-name &rest args)` and JSON data as additional emacsclient arguments
 
 #### Setup
 
+Before configuring hooks, you need to start the Emacs server so that `emacsclient` can communicate with your Emacs instance:
+
 ```elisp
-;; Add your hook handlers using standard Emacs functions
-(add-hook 'claude-code-hook 'my-claude-hook-handler)
+;; Start the Emacs server (add this to your init.el)
+(start-server)
+
+;; Add your hook listeners using standard Emacs functions
+(add-hook 'claude-code-event-hook 'my-claude-hook-listener)
 ```
 
-#### Custom Hook Handler
+#### Custom Hook Listener
+
+Hook listeners receive a message plist with these keys:
+- `:type` - Hook type (e.g., `'notification`, `'stop`, `'pre-tool-use`, `'post-tool-use`)
+- `:buffer-name` - Claude buffer name from `$CLAUDE_BUFFER_NAME`
+- `:json-data` - JSON payload from Claude CLI
+- `:args` - List of additional arguments (when using extended configuration)
 
 ```elisp
-;; Define your own hook handler function
-(defun my-claude-hook-handler (message)
-  "Custom handler for Claude Code hooks.
+;; Define your own hook listener function
+(defun my-claude-hook-listener (message)
+  "Custom listener for Claude Code hooks.
 MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
   (let ((hook-type (plist-get message :type))
         (buffer-name (plist-get message :buffer-name))
@@ -321,31 +332,21 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
         (args (plist-get message :args)))
     (cond 
      ((eq hook-type 'notification)
-      (message "Claude is ready in %s! JSON: %s" buffer-name json-data)
-      ;; Add your notification logic here
-      )
+      (message "Claude is ready in %s! JSON: %s" buffer-name json-data))
      ((eq hook-type 'stop)  
-      (message "Claude finished in %s! JSON: %s" buffer-name json-data)
-      ;; Add your cleanup logic here
-      )
-     ;; Handle other hook types: 'pre-tool-use', 'post-tool-use', etc.
+      (message "Claude finished in %s! JSON: %s" buffer-name json-data))
      (t
       (message "Claude hook: %s with JSON: %s" hook-type json-data)))))
 
-;; Add the hook handler using standard Emacs hook functions
-(add-hook 'claude-code-hook 'my-claude-hook-handler)
-
-;; Or add multiple handlers
-(add-hook 'claude-code-hook 'my-other-hook-handler)
-(add-hook 'claude-code-hook 'my-third-hook-handler)
-
-;; Remove a handler if needed
-(remove-hook 'claude-code-hook 'my-claude-hook-handler)
+;; Add the hook listener using standard Emacs hook functions
+(add-hook 'claude-code-event-hook 'my-claude-hook-listener)
 ```
+
+See the examples file for complete listeners that demonstrate notifications, logging, org-mode integration, and using extra arguments from the `:args` field.
 
 #### Claude Code CLI Configuration
 
-Configure Claude Code CLI hooks to call `claude-code-handle-hook` via emacsclient using temporary files for JSON data:
+Configure Claude Code CLI hooks to call `claude-code-handle-hook` via emacsclient by passing JSON data as an additional argument:
 
 ```json
 {
@@ -356,7 +357,7 @@ Configure Claude Code CLI hooks to call `claude-code-handle-hook` via emacsclien
         "hooks": [
           {
             "type": "command",
-            "command": "tmpfile=$(mktemp); cat > \"$tmpfile\"; /opt/homebrew/bin/emacsclient --eval \"(claude-code-handle-hook 'notification \\\"$CLAUDE_BUFFER_NAME\\\" \\\"$tmpfile\\\")\"; rm \"$tmpfile\""
+            "command": "emacsclient --eval \"(claude-code-handle-hook 'notification \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\""
           }
         ]
       }
@@ -367,7 +368,7 @@ Configure Claude Code CLI hooks to call `claude-code-handle-hook` via emacsclien
         "hooks": [
           {
             "type": "command",
-            "command": "tmpfile=$(mktemp); cat > \"$tmpfile\"; /opt/homebrew/bin/emacsclient --eval \"(claude-code-handle-hook 'stop \\\"$CLAUDE_BUFFER_NAME\\\" \\\"$tmpfile\\\")\"; rm \"$tmpfile\""
+            "command": "emacsclient --eval \"(claude-code-handle-hook 'stop \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\""
           }
         ]
       }
@@ -376,11 +377,24 @@ Configure Claude Code CLI hooks to call `claude-code-handle-hook` via emacsclien
 }
 ```
 
-The command pattern:
-1. `tmpfile=$(mktemp)` - Create temporary file
-2. `cat > "$tmpfile"` - Write JSON from stdin to temp file  
-3. `emacsclient --eval "..."` - Call `claude-code-handle-hook` with parameters in order: hook-type, buffer-name, temp-file-path
-4. `rm "$tmpfile"` - Clean up temp file
+The command pattern:  
+```bash
+emacsclient --eval "(claude-code-handle-hook 'notification \"$CLAUDE_BUFFER_NAME\")" "$(cat)" "ARG1" "ARG2" "ARG3"
+```
+
+Where:
+- `"$(cat)"` - JSON data from stdin (always required)
+- `ARG1` is `"$PWD"` - current working directory  
+- `ARG2` is `"$(date -Iseconds)"` - timestamp
+- `ARG3` is `"$$"` - process ID
+
+`claude-code-handle-hook` creates a message plist sent to listeners:
+```elisp
+(list :type 'notification 
+      :buffer-name "$CLAUDE_BUFFER_NAME"
+      :json-data "$(cat)" 
+      :args '("ARG1" "ARG2" "ARG3"))
+```
 
 See the [Claude Code hooks documentation](https://docs.anthropic.com/en/docs/claude-code/hooks) for details on setting up CLI hooks.
 

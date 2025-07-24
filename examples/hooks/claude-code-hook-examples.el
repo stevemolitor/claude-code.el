@@ -7,17 +7,19 @@
 
 ;;; Commentary:
 ;; This file provides examples of how to configure and use Claude Code hooks.
+;; It includes both basic examples and enhanced examples showing how to pass
+;; additional data beyond JSON using server-eval-args-left.
 ;; Copy and adapt these examples to your own configuration.
 
 ;;; Code:
 
-;;;; Example Hook Handlers
+;;;; Basic Hook Listeners
 
-;; Uses the new hook API where claude-code-handle-hook creates a plist message
+;; Uses the hook API where claude-code-handle-hook creates a plist message
 ;; with :type, :buffer-name, :json-data, and :args keys
 
-(defun my-claude-notification-handler (message)
-  "Handle Claude notification hooks with visual and audio feedback.
+(defun my-claude-notification-listener (message)
+  "Handle Claude notification events with visual and audio feedback.
 MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
   (let ((hook-type (plist-get message :type))
         (buffer-name (plist-get message :buffer-name))
@@ -39,7 +41,7 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
       (message "✅ Claude finished responding in %s! JSON: %s" buffer-name json-data)
       (ding)))))
 
-(defun my-claude-tool-use-tracker (message)
+(defun my-claude-tool-use-listener (message)
   "Track Claude's tool usage for debugging/monitoring.
 MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
   (let ((hook-type (plist-get message :type))
@@ -51,7 +53,7 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
      ((eq hook-type 'post-tool-use)
       (message "✅ Claude finished using a tool in %s. JSON: %s" buffer-name json-data)))))
 
-(defun my-claude-session-logger (message)
+(defun my-claude-session-listener (message)
   "Log all Claude hook events to a file.
 MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
   (let ((hook-type (plist-get message :type))
@@ -62,7 +64,7 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
       (insert (format "[%s] %s: %s (JSON: %s)\n" timestamp hook-type buffer-name json-data))
       (append-to-file (point-min) (point-max) "~/claude-hooks.log"))))
 
-(defun my-claude-org-task-manager (message)
+(defun my-claude-org-listener (message)
   "Create org-mode entries for Claude sessions.
 MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
   (let ((hook-type (plist-get message :type))
@@ -81,44 +83,46 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
                             json-data))
             (append-to-file (point-min) (point-max) org-file)))))))
 
+
 ;;;; Hook Setup Examples
 
 (defun setup-claude-hooks-basic ()
   "Set up basic Claude hook handling with notifications."
   (interactive)
-  (add-hook 'claude-code-hook 'my-claude-notification-handler)
+  (add-hook 'claude-code-event-hook 'my-claude-notification-listener)
   (message "Basic Claude hooks configured"))
 
 (defun setup-claude-hooks-advanced ()
-  "Set up advanced Claude hook handling with multiple handlers."
+  "Set up advanced Claude hook handling with multiple listeners."
   (interactive)
-  ;; Add multiple handlers
-  (add-hook 'claude-code-hook 'my-claude-notification-handler)
-  (add-hook 'claude-code-hook 'my-claude-tool-use-tracker)
-  (add-hook 'claude-code-hook 'my-claude-session-logger)
+  ;; Add multiple listeners
+  (add-hook 'claude-code-event-hook 'my-claude-notification-listener)
+  (add-hook 'claude-code-event-hook 'my-claude-tool-use-listener)
+  (add-hook 'claude-code-event-hook 'my-claude-session-listener)
   (message "Advanced Claude hooks configured"))
 
 (defun setup-claude-hooks-org-integration ()
   "Set up Claude hooks with org-mode integration."
   (interactive)
-  (add-hook 'claude-code-hook 'my-claude-notification-handler)
-  (add-hook 'claude-code-hook 'my-claude-org-task-manager)
+  (add-hook 'claude-code-event-hook 'my-claude-notification-listener)
+  (add-hook 'claude-code-event-hook 'my-claude-org-listener)
   (message "Claude hooks with org-mode integration configured"))
+
 
 ;;;; Utility Functions
 
 (defun remove-all-claude-hooks ()
   "Remove all Claude hook handlers."
   (interactive)
-  (setq claude-code-hook nil)
+  (setq claude-code-event-hook nil)
   (message "All Claude hooks removed"))
 
 (defun list-claude-hooks ()
   "Show currently configured Claude hook handlers."
   (interactive)
-  (if claude-code-hook
+  (if claude-code-event-hook
       (message "Claude hooks: %s" 
-               (mapconcat (lambda (f) (symbol-name f)) claude-code-hook ", "))
+               (mapconcat (lambda (f) (symbol-name f)) claude-code-event-hook ", "))
     (message "No Claude hooks configured")))
 
 ;;;; Usage Instructions
@@ -128,6 +132,9 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
 ;; 1. Load this file: (load-file "claude-code-hook-examples.el")
 ;; 2. Set up hooks: (setup-claude-hooks-basic)  ; or one of the other setup functions
 ;; 3. Configure Claude Code CLI hooks in .claude/settings.json:
+
+;;;; Basic Configuration (JSON data only):
+;; Use this with the basic listeners (my-claude-notification-listener, etc.)
 ;;
 ;;    {
 ;;      "hooks": {
@@ -137,7 +144,7 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
 ;;            "hooks": [
 ;;              {
 ;;                "type": "command",
-;;                "command": "tmpfile=$(mktemp); cat > \"$tmpfile\"; /opt/homebrew/bin/emacsclient --eval \"(claude-code-handle-hook 'notification \\\"$CLAUDE_BUFFER_NAME\\\" \\\"$tmpfile\\\")\"; rm \"$tmpfile\""
+;;                "command": "emacsclient --eval \"(claude-code-handle-hook 'notification \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\""
 ;;              }
 ;;            ]
 ;;          }
@@ -148,13 +155,93 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
 ;;            "hooks": [
 ;;              {
 ;;                "type": "command",
-;;                "command": "tmpfile=$(mktemp); cat > \"$tmpfile\"; /opt/homebrew/bin/emacsclient --eval \"(claude-code-handle-hook 'stop \\\"$CLAUDE_BUFFER_NAME\\\" \\\"$tmpfile\\\")\"; rm \"$tmpfile\""
+;;                "command": "emacsclient --eval \"(claude-code-handle-hook 'stop \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\""
 ;;              }
 ;;            ]
 ;;          }
 ;;        ]
 ;;      }
 ;;    }
+
+;;;; Configuration with additional arguments:
+;; Use this with my-claude-context-listener to access extra context data
+;;
+;;    {
+;;      "hooks": {
+;;        "Notification": [
+;;          {
+;;            "matcher": "",
+;;            "hooks": [
+;;              {
+;;                "type": "command",
+;;                "command": "emacsclient --eval \"(claude-code-handle-hook 'notification \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\" \"$PWD\" \"$(date -Iseconds)\" \"$$\""
+;;              }
+;;            ]
+;;          }
+;;        ],
+;;        "Stop": [
+;;          {
+;;            "matcher": "",
+;;            "hooks": [
+;;              {
+;;                "type": "command",
+;;                "command": "emacsclient --eval \"(claude-code-handle-hook 'stop \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\" \"$PWD\" \"$(date -Iseconds)\" \"$$\""
+;;              }
+;;            ]
+;;          }
+;;        ]
+;;      }
+;;    }
+;;
+;; This enhanced configuration passes:
+;; - JSON data from stdin (always required)
+;; - Current working directory ($PWD)  
+;; - Timestamp ($(date -Iseconds))
+;; - Process ID ($$)
+;; 
+;; The my-claude-context-listener function demonstrates how to extract and use this extra data.
+
+(defun my-claude-context-listener (message)
+  "Event listener that demonstrates using extra arguments passed from CLI.
+MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys.
+The :args field contains additional data like working directory, timestamp, and PID
+when using the configuration with additional arguments."
+  (let ((hook-type (plist-get message :type))
+        (buffer-name (plist-get message :buffer-name))
+        (json-data (plist-get message :json-data))
+        (args (plist-get message :args)))
+    (cond
+     ((eq hook-type 'notification)
+      ;; Extract additional arguments if they were passed
+      (if args
+          (let ((working-dir (nth 0 args))
+                (timestamp (nth 1 args))
+                (process-id (nth 2 args)))
+            (message "🤖 Claude ready in %s! Working dir: %s, Time: %s, PID: %s"
+                     buffer-name working-dir timestamp process-id)
+            ;; Could log with more context
+            (with-temp-buffer
+              (insert (format "[%s] Claude ready in %s (dir: %s, PID: %s) - JSON: %s\n"
+                              timestamp buffer-name working-dir process-id json-data))
+              (append-to-file (point-min) (point-max) "~/claude-context.log")))
+        ;; Fallback for basic configuration without extra args
+        (message "🤖 Claude ready in %s! JSON: %s" buffer-name json-data)))
+     ((eq hook-type 'stop)
+      (if args
+          (let ((working-dir (nth 0 args))
+                (timestamp (nth 1 args))
+                (process-id (nth 2 args)))
+            (message "✅ Claude finished in %s! Working dir: %s, Time: %s, PID: %s"
+                     buffer-name working-dir timestamp process-id))
+        (message "✅ Claude finished in %s! JSON: %s" buffer-name json-data))))))
+
+(defun setup-claude-hooks-with-context ()
+  "Set up Claude hooks that use extra CLI arguments.
+Use this with the configuration that passes additional arguments like $PWD, timestamp, and PID."
+  (interactive)
+  (add-hook 'claude-code-event-hook 'my-claude-context-listener)
+  (message "Claude hooks with context awareness configured - use the configuration with additional arguments"))
+
 
 (provide 'claude-code-hook-examples)
 
