@@ -357,6 +357,33 @@ Searches all sessions for the deferred response."
        ws id -32601
        (format "Tool not found: %s" tool-name)))))
 
+(defun claude-code-mcp--handle-resources-list (_session ws id params)
+  "Handle resources/list request with ID and PARAMS from WS for SESSION."
+  (let* ((cursor (alist-get 'cursor params))
+         (resources (claude-code-mcp--get-file-resources cursor)))
+    (claude-code-mcp--send-response
+     ws id
+     `((resources . ,(vconcat resources))
+       ,@(when cursor `((nextCursor . ,cursor)))))))
+
+(defun claude-code-mcp--handle-resources-read (_session ws id params)
+  "Handle resources/read request with ID and PARAMS from WS for SESSION."
+  (let* ((uri (alist-get 'uri params))
+         (file-path (when (string-prefix-p "file://" uri)
+                      (substring uri 7))))
+    (if (and file-path (file-exists-p file-path))
+        (let ((content (with-temp-buffer
+                         (insert-file-contents file-path)
+                         (buffer-string))))
+          (claude-code-mcp--send-response
+           ws id
+           `((contents . ,(vector `((uri . ,uri)
+                                    (text . ,content)
+                                    (mimeType . ,(claude-code-mcp--get-mime-type file-path))))))))
+      (claude-code-mcp--send-error
+       ws id -32602
+       (format "Resource not found: %s" uri)))))
+
 ;;; Diffs
 (defun claude-code-mcp--handle-diff-response (tab-name session)
   "Handle user response to diff for TAB-NAME in SESSION."
@@ -1214,6 +1241,12 @@ Remove SESSION from `claude-code-mcp--sessions'."
           ;; Prompts listing (empty for now)
           ("prompts/list"
            (claude-code-mcp--send-response ws id '((prompts . []))))
+          ;; Resources listing
+          ("resources/list"
+           (claude-code-mcp--handle-resources-list session ws id params))
+          ;; Resources read
+          ("resources/read"
+           (claude-code-mcp--handle-resources-read session ws id params))
           ;; Unknown method
           (_
            (claude-code-mcp--send-error ws id -32601 (format "Method not found: %s" method))
@@ -1267,6 +1300,97 @@ Returns the session object."
       (error
        (message "Failed to start MCP server: %s" (error-message-string err))
        nil))))
+
+;;; Resources helpers
+(defun claude-code-mcp--get-file-resources (&optional cursor)
+  "Get list of file resources.
+CURSOR is for pagination support (not implemented yet).
+Returns a list of resource objects."
+  (let ((resources '()))
+    ;; Add open file buffers as resources
+    (dolist (buffer (buffer-list))
+      (when-let* ((file (buffer-file-name buffer)))
+        (push `((uri . ,(concat "file://" file))
+                (name . ,(file-name-nondirectory file))
+                (description . ,(format "Open file in buffer: %s" (buffer-name buffer)))
+                (mimeType . ,(claude-code-mcp--get-mime-type file)))
+              resources)))
+    ;; Add recent files if available
+    (when (boundp 'recentf-list)
+      (dolist (file (seq-take recentf-list 20)) ; Limit to 20 recent files
+        (when (and (file-exists-p file)
+                   ;; Don't duplicate already open files
+                   (not (find-buffer-visiting file)))
+          (push `((uri . ,(concat "file://" file))
+                  (name . ,(file-name-nondirectory file))
+                  (description . "Recent file")
+                  (mimeType . ,(claude-code-mcp--get-mime-type file)))
+                resources))))
+    ;; Add project files if available (limit for performance)
+    (when-let* ((project (project-current))
+                (root (project-root project)))
+      ;; Get a sample of project files
+      (let ((project-files (project-files project)))
+        (dolist (file (seq-take project-files 50)) ; Limit to 50 project files
+          (let ((full-path (expand-file-name file root)))
+            (when (and (file-regular-p full-path)
+                       ;; Don't duplicate already listed files
+                       (not (cl-find-if (lambda (r)
+                                          (string= (alist-get 'uri r)
+                                                   (concat "file://" full-path)))
+                                        resources)))
+              (push `((uri . ,(concat "file://" full-path))
+                      (name . ,(file-name-nondirectory full-path))
+                      (description . "Project file")
+                      (mimeType . ,(claude-code-mcp--get-mime-type full-path)))
+                    resources))))))
+    (nreverse resources)))
+
+(defun claude-code-mcp--get-mime-type (file)
+  "Get MIME type for FILE based on extension."
+  (let ((ext (file-name-extension file)))
+    (cond
+     ;; Text files
+     ((member ext '("el" "elc")) "text/x-elisp")
+     ((member ext '("py" "pyw")) "text/x-python")
+     ((member ext '("js" "mjs" "cjs")) "text/javascript")
+     ((member ext '("ts" "tsx")) "text/typescript")
+     ((member ext '("jsx")) "text/jsx")
+     ((member ext '("json")) "application/json")
+     ((member ext '("xml")) "application/xml")
+     ((member ext '("html" "htm")) "text/html")
+     ((member ext '("css")) "text/css")
+     ((member ext '("scss" "sass")) "text/x-scss")
+     ((member ext '("md" "markdown")) "text/markdown")
+     ((member ext '("txt" "text")) "text/plain")
+     ((member ext '("yaml" "yml")) "text/yaml")
+     ((member ext '("toml")) "text/x-toml")
+     ((member ext '("ini" "cfg" "conf")) "text/x-ini")
+     ((member ext '("sh" "bash" "zsh")) "text/x-shellscript")
+     ((member ext '("c" "h")) "text/x-c")
+     ((member ext '("cpp" "cc" "cxx" "hpp" "hxx")) "text/x-c++")
+     ((member ext '("java")) "text/x-java")
+     ((member ext '("rs")) "text/x-rust")
+     ((member ext '("go")) "text/x-go")
+     ((member ext '("rb")) "text/x-ruby")
+     ((member ext '("php")) "text/x-php")
+     ((member ext '("swift")) "text/x-swift")
+     ((member ext '("kt" "kts")) "text/x-kotlin")
+     ((member ext '("scala")) "text/x-scala")
+     ((member ext '("clj" "cljs" "cljc")) "text/x-clojure")
+     ((member ext '("lisp" "lsp")) "text/x-lisp")
+     ((member ext '("vim")) "text/x-vim")
+     ((member ext '("lua")) "text/x-lua")
+     ((member ext '("r" "R")) "text/x-r")
+     ((member ext '("m" "mm")) "text/x-objc")
+     ((member ext '("sql")) "text/x-sql")
+     ((member ext '("graphql" "gql")) "text/x-graphql")
+     ((member ext '("proto")) "text/x-protobuf")
+     ((member ext '("dockerfile" "Dockerfile")) "text/x-dockerfile")
+     ((member ext '("makefile" "Makefile" "mk")) "text/x-makefile")
+     ((member ext '("cmake" "CMakeLists.txt")) "text/x-cmake")
+     ;; Default
+     (t "text/plain"))))
 
 ;;; Selection
 (defun claude-code-mcp--get-selection ()
