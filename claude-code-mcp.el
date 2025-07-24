@@ -583,17 +583,20 @@ _SESSION is the MCP session (unused for this tool)."
           ;; Re-initialize diff-mode with our settings
           (diff-mode))
 
-        ;; Display the diff buffer in a pop up window
+        ;; Display the diff buffer in a pop up window without selecting it
         (display-buffer diff-buffer
                         '((display-buffer-pop-up-window)
-                          (post-command-select-window . nil)))
+                          (inhibit-switch-frame . t)))
 
         ;; Schedule the diff prompt to happen after returning deferred response
         (run-with-timer
          0.01 nil ; Increased delay for better stability [TODO] can we lower it?
          (lambda ()
            (let* ((use-dialog-box nil)
-                  (accepted-p (y-or-n-p "Accept changes?"))
+                  ;; Ensure minibuffer is active for the prompt
+                  (accepted-p (save-window-excursion
+                                (select-window (minibuffer-window))
+                                (y-or-n-p "Accept changes?")))
                   (response (if accepted-p
                                 `((content . ,(vector
                                                (list (cons 'type "text")
