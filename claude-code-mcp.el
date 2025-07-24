@@ -580,7 +580,7 @@ _SESSION is the MCP session (unused for this tool)."
           ;; Store file paths for diff-mode to use
           (setq-local diff-vc-backend nil) ; Not using VC
           (setq-local diff-default-directory default-directory)
-          ;; IMPORTANT: Set diff-font-lock-syntax to 'hunk-also BEFORE calling diff-mode
+          ;; Set diff-font-lock-syntax to 'hunk-also BEFORE calling diff-mode
           (setq-local diff-font-lock-syntax 'hunk-also)
           ;; Re-initialize diff-mode with our settings
           (diff-mode))
@@ -599,6 +599,7 @@ _SESSION is the MCP session (unused for this tool)."
                      (diff-buffer . ,diff-buffer)
                      (old-file-path . ,old-path)
                      (new-file-path . ,new-path)
+                     (new-contents . ,new-contents)
                      (file-exists . ,file-exists)
                      (session . ,session)
                      (created-at . ,(current-time)))
@@ -644,18 +645,34 @@ SESSION is the MCP session for tracking opened diffs."
                              (claude-code-mcp--session-opened-diffs session)))
              (diff-info (when opened-diffs
                           (gethash tab-name opened-diffs))))
-        (if diff-info
-            ;; It's a diff tab - handle appropriately
-            (progn
-              ;; Clean up the diff
-              (claude-code-mcp--cleanup-diff tab-name session)
-              (claude-code-mcp--log 'out 'close-diff-tab-success
-                                    `((tab-name . ,tab-name)
-                                      (result . "TAB_CLOSED"))
-                                    nil)
-              ;; Return success response
-              `((content . ,(vector (list (cons 'type "text")
-                                           (cons 'text "TAB_CLOSED")))))))
+        (when diff-info
+          (let ((new-contents (gethash 'new-contents)))
+            ;; complete the deferred response to save the diff
+            (message "xxx saving diff")
+            (claude-code-mcp--complete-deferred-response
+             tab-name
+             `((content . ,(vector
+                            (list (cons 'type "text")
+                                  (cons 'text "FILE_SAVED"))
+                            (list (cons 'type "text")
+                                  (cons 'text new-contents)))))))
+
+          ;; Clean up the diff
+          (claude-code-mcp--cleanup-diff tab-name session)
+
+          ;; Log and return success response
+          (claude-code-mcp--log 'out 'close-diff-tab-success
+                                `((tab-name . ,tab-name)
+                                  (result . "TAB_CLOSED"))
+                                nil)
+
+          ;; Log and return response
+          (claude-code-mcp--log 'out 'close-tab-no-buffer
+                                `((tab-name . ,tab-name)
+                                  (result . "TAB_CLOSED"))
+                                nil)
+          `((content . ,(vector (list (cons 'type "text")
+                                      (cons 'text "TAB_CLOSED"))))))
         ;; Not a diff - treat tab_name as regular buffer name
         (let ((buffer (get-buffer tab-name)))
           (if buffer
@@ -676,7 +693,7 @@ SESSION is the MCP session for tracking opened diffs."
                                           (result . "Buffer not found, returning success"))
                                         nil)
                   `((content . ,(vector (list (cons 'type "text")
-                                               (cons 'text "TAB_CLOSED")))))))))))
+                                              (cons 'text "TAB_CLOSED")))))))))))
      ;; Neither path nor tab_name provided - this is still an error
      (t
       (error "Either 'path' or 'tab_name' must be provided")))))
