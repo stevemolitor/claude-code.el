@@ -286,6 +286,17 @@ If PARAMS is not provided, uses an empty hash table."
    client
    "notifications/tools/list_changed"))
 
+(defun claude-code-mcp--send-selection (client)
+  "Send current selection to CLIENT if buffer has file and is live."
+  (when (and buffer-file-name
+             (buffer-live-p (current-buffer)))
+    (let ((selection (claude-code-mcp--get-selection)))
+      (when selection
+        (claude-code-mcp--send-notification
+         client
+         "selection_changed"
+         selection)))))
+
 (defun claude-code-mcp--complete-deferred-response (unique-key result)
   "Complete a deferred response for UNIQUE-KEY with RESULT.
 Searches all sessions for the deferred response."
@@ -402,14 +413,7 @@ We use this opportunity to send the initial selection state."
     (run-with-timer claude-code-mcp--initial-notification-delay nil
                     (lambda ()
                       ;; Send current selection if we have a file buffer
-                      (when (and buffer-file-name
-                                 (buffer-live-p (current-buffer)))
-                        (let ((selection (claude-code-mcp--get-selection)))
-                          (when selection
-                            (claude-code-mcp--send-notification
-                             client
-                             "selection_changed"
-                             selection))))))))
+                      (claude-code-mcp--send-selection client)))))
 
 ;;; MCP Tools
 (defun claude-code-mcp--get-tools-list ()
@@ -843,14 +847,7 @@ This function sends a DIFF_REJECTED response and cleans up the diff."
                           ;; Send tools/list_changed notification as keepalive
                           (claude-code-mcp--ping client)
                           ;; Send the selection
-                          (when (and buffer-file-name
-                                     (buffer-live-p (current-buffer)))
-                            (let ((selection (claude-code-mcp--get-selection)))
-                              (when selection
-                                (claude-code-mcp--send-notification
-                                 client
-                                 "selection_changed"
-                                 selection)))))))
+                          (claude-code-mcp--send-selection client))))
 
       ;; Clean up the diff
       ;; (claude-code-mcp--cleanup-diff tab-name session)
