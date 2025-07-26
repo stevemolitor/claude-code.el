@@ -2,7 +2,7 @@
 
 ;; Author: Stephen Molitor <stevemolitor@gmail.com>
 ;; Version: 0.2.0
-;; Package-Requires: ((emacs "30.0") (transient "0.9.3"))
+;; Package-Requires: ((emacs "30.0") (transient "0.9.3") (websocket "1.15")
 ;; Keywords: tools, ai
 ;; URL: https://github.com/stevemolitor/claude-code.el
 
@@ -16,6 +16,7 @@
 (require 'transient)
 (require 'project)
 (require 'cl-lib)
+(require 'claude-code-mcp)
 
 ;;;; Customization options
 (defgroup claude-code nil
@@ -139,6 +140,13 @@ resizing."
 Choose between \\='eat (default) and \\='vterm terminal emulators."
   :type '(radio (const :tag "Eat terminal emulator" eat)
                 (const :tag "Vterm terminal emulator" vterm))
+  :group 'claude-code)
+
+(defcustom claude-code-enable-ide-integration nil
+  "Enable IDE integration via MCP (Model Context Protocol).
+When non-nil, Claude Code will start an MCP server to provide
+IDE features to Claude."
+  :type 'boolean
   :group 'claude-code)
 
 (defcustom claude-code-no-delete-other-windows nil
@@ -312,6 +320,9 @@ for each directory across multiple invocations.")
 
 (defvar claude-code--window-widths nil
   "Hash table mapping windows to their last known widths for eat terminals.")
+
+(defvar-local claude-code--mcp-session nil
+  "MCP session for this Claude buffer.")
 
 ;;;; Key bindings
 ;;;###autoload (autoload 'claude-code-command-map "claude-code")
@@ -662,7 +673,7 @@ _BACKEND is the terminal backend type (should be \\='eat)."
 (declare-function vterm-send-key "vterm" key &optional shift meta ctrl accept-proc-output)
 (declare-function vterm-send-string "vterm" (string &optional paste-p))
 
-;; Helper to ensure vterm is loaded
+;; Start Claude process in vterm
 (cl-defmethod claude-code--term-make ((_backend (eql vterm)) buffer-name program &optional switches)
   "Create a vterm terminal.
 
@@ -676,6 +687,7 @@ SWITCHES are optional command-line arguments for PROGRAM."
                         program))
          (buffer (get-buffer-create buffer-name)))
     (with-current-buffer buffer
+      
       ;; vterm needs to have an open window before starting the claude
       ;; process; otherwise Claude doesn't seem to know how wide its
       ;; terminal window is and it draws the input box too wide. But
@@ -691,11 +703,13 @@ SWITCHES are optional command-line arguments for PROGRAM."
       (delete-window (get-buffer-window buffer))
       buffer)))
 
+;; Helper to ensure vterm is loaded
 (defun claude-code--ensure-vterm ()
   "Ensure vterm package is loaded."
-  (unless (featurep 'vterm)
-    (unless (require 'vterm nil t)
-      (error "The vterm package is required for vterm terminal backend. Please install it"))))
+  (unless (and
+           (require 'vterm nil t)
+           (featurep 'vterm))
+    (error "The vterm package is required for vterm terminal backend. Please install it")))
 
 (cl-defmethod claude-code--term-send-string ((_backend (eql vterm)) string)
   "Send STRING to vterm terminal.
@@ -1056,6 +1070,9 @@ If FORCE-PROMPT is non-nil, always prompt even if no instances exist."
   "Kill a Claude BUFFER by cleaning up hooks and processes."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
+      ;; Clean up MCP session if present
+      (when claude-code--mcp-session
+        (claude-code-mcp--cleanup-session (buffer-name buffer)))
       ;; Remove the adjust window size advice if it was added
       (when claude-code-optimize-window-resize
         (advice-remove (claude-code--term-get-adjust-process-window-size-fn claude-code-terminal-backend) #'claude-code--adjust-window-size-advice))
@@ -1108,8 +1125,9 @@ Returns the selected Claude buffer or nil."
       (progn
         (with-current-buffer claude-code-buffer
           (claude-code--term-send-string claude-code-terminal-backend cmd)
+          (display-buffer claude-code-buffer)
           (claude-code--term-send-string claude-code-terminal-backend (kbd "RET"))
-          (display-buffer claude-code-buffer))
+          (run-with-timer 0.1 nil (lambda () (claude-code--send-return))))
         claude-code-buffer)
     (claude-code--show-not-running-message)
     nil))
@@ -1147,6 +1165,19 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
          ;; Set process-adaptive-read-buffering to nil to avoid flickering while Claude is processing
          (process-adaptive-read-buffering nil)
 
+         ;; Start MCP server if IDE integration is enabled
+         (mcp-port (when claude-code-enable-ide-integration
+                     (let ((session (claude-code-mcp--start-server buffer-name dir)))
+                       (when session
+                         (claude-code-mcp--session-port session)))))
+
+         ;; Set environment variables for MCP
+         (process-environment (if mcp-port
+                                  (append `(,(format "CLAUDE_CODE_SSE_PORT=%d" mcp-port)
+                                            "ENABLE_IDE_INTEGRATION=true")
+                                          process-environment)
+                                process-environment))
+
          ;; Start the terminal process
          (buffer (claude-code--term-make claude-code-terminal-backend buffer-name claude-code-program program-switches)))
 
@@ -1160,6 +1191,10 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
 
     ;; setup claude buffer
     (with-current-buffer buffer
+
+      ;; Store MCP session if we started one
+      (when (and claude-code-enable-ide-integration mcp-port)
+        (setq claude-code--mcp-session (gethash buffer-name claude-code-mcp--sessions)))
 
       ;; Configure terminal with backend-specific settings
       (claude-code--term-configure claude-code-terminal-backend)
