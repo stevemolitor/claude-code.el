@@ -3,6 +3,130 @@
 ;;; Commentary:
 ;; Integrate claude-code.el with claude processes using websockets + MCP.
 
+;;; MCP Protocol Documentation:
+;;
+;; This file implements the Model Context Protocol (MCP) for Claude Code IDE integration.
+;; MCP enables Claude to interact with the Emacs editor through a WebSocket connection.
+;;
+;; ## Architecture Overview
+;;
+;; Emacs acts as an MCP server that Claude Code connects to via WebSocket. The connection
+;; is established through a lock file mechanism where Emacs writes connection details
+;; (port, auth token) to ~/.claude/ide/<port>.lock for Claude to discover.
+;;
+;; ## Protocol Details
+;;
+;; - Transport: WebSocket on localhost (ports 10000-65535)
+;; - Protocol: JSON-RPC 2.0 over WebSocket
+;; - MCP Version: "2024-11-05"
+;; - Authentication: UUID token in lock file (header validation not possible with websocket.el)
+;;
+;; ## Initialization Process
+;;
+;; 1. Server Creation (claude-code-mcp--start-server):
+;;    - Find free port in allowed range
+;;    - Generate UUID auth token
+;;    - Create WebSocket server listening on localhost
+;;    - Write lock file with connection info
+;;
+;; 2. Handshake Sequence:
+;;    - Claude connects and sends "initialize" request
+;;    - Emacs responds with server capabilities:
+;;      * tools.listChanged = true
+;;      * prompts.listChanged = true  
+;;      * resources.subscribe = false
+;;    - Session marked as initialized
+;;    - "notifications/tools/list_changed" sent immediately
+;;
+;; 3. Post-Connection:
+;;    - Claude sends "ide_connected" notification
+;;    - Emacs acknowledges and sends initial selection state after short delay
+;;
+;; ## Selection Tracking
+;;
+;; The current text selection or cursor position is tracked and sent to Claude:
+;;
+;; - Tracking: post-command-hook monitors selection changes in file buffers
+;; - Debouncing: 0.05s delay to batch rapid changes
+;; - Format: {text, filePath, fileUrl, selection: {start, end, isEmpty}}
+;; - Coordinates: 0-based line and character positions
+;; - Notification: Sent via "selection_changed" method to all initialized sessions
+;;
+;; ## Diff System
+;;
+;; The diff system uses a "deferred response" pattern for blocking operations:
+;;
+;; 1. Deferred Response Pattern:
+;;    - openDiff tool returns {deferred: true, unique-key: tab-name}
+;;    - Request ID stored in session's deferred-responses hash table
+;;    - Response sent later when user accepts/rejects changes
+;;
+;; 2. Diff Display Process:
+;;    - Create temporary buffers for old content (from file) and new content
+;;    - Use diff-no-select to generate unified diff (simpler than ediff)
+;;    - Display in pop-up window with syntax highlighting
+;;    - Store diff info in session's opened-diffs hash table
+;;
+;; 3. User Interaction:
+;;    - Keybindings: 'y' to accept changes, 'q' to reject
+;;    - Accept: Write new contents to file, send FILE_SAVED response
+;;    - Reject: Send DIFF_REJECTED response
+;;    - Both actions: Clean up temp buffers, update selection
+;;
+;; 4. Response Format:
+;;    - FILE_SAVED: [{type: "text", text: "FILE_SAVED"}, {type: "text", text: <new-contents>}]
+;;    - DIFF_REJECTED: [{type: "text", text: "DIFF_REJECTED"}, {type: "text", text: <tab-name>}]
+;;
+;; ## Important Implementation Notes
+;;
+;; 1. Vector Syntax (Critical!):
+;;    - NEVER use literal vector syntax `[...]` with dynamic content
+;;    - Must use `(vector ...)` for interpolation to work correctly
+;;    - Wrong: `((content . [((type . "text") (text . ,variable))]))
+;;    - Right: `((content . ,(vector (list (cons 'type "text") (cons 'text variable)))))
+;;    - This issue causes malformed JSON that crashes Claude
+;;
+;; 2. JSON Validation:
+;;    - All outgoing JSON is validated when logging enabled
+;;    - Malformed JSON logs error details and signals
+;;    - Critical for debugging protocol issues
+;;
+;; 3. Authentication Limitations:
+;;    - websocket.el doesn't provide access to HTTP headers during handshake
+;;    - Cannot validate x-claude-code-ide-authorization header
+;;    - Security relies on obscurity of auth token in lock file
+;;
+;; 4. Keep-Alive Mechanism:
+;;    - tools/list_changed notifications used as ping to prevent disconnection
+;;    - Sent after certain operations (diff accept/reject) to maintain connection
+;;
+;; ## Available Tools
+;;
+;; File Operations:
+;; - openFile: Open files by URI or path
+;; - getOpenEditors: List currently open file buffers
+;; - getWorkspaceFolders: Get project directories
+;;
+;; Selection/Editing:
+;; - getCurrentSelection: Get current text selection or cursor position
+;; - getLatestSelection: Get most recent selection from any file
+;;
+;; Diff Operations:
+;; - openDiff: Display diff for code review (uses deferred response)
+;; - closeAllDiffTabs: Close all open diff windows
+;; - close_tab: Close specific tab/buffer
+;;
+;; Document Management:
+;; - checkDocumentDirty: Check if document has unsaved changes
+;; - saveDocument: Save document to disk
+;;
+;; Diagnostics:
+;; - getDiagnostics: Get flycheck/flymake error diagnostics
+;;
+;; ## Resources
+;;
+;; The server also provides read-only access to files through the resources API,
+;; including open buffers, recent files, and project files.
 
 ;;; Code:
 ;;; Require dependencies
@@ -535,7 +659,9 @@ _SESSION is the MCP session (unused for this tool)."
 
         ;; Return success with file information
         `((content . ,(vector (list (cons 'type "text")
-                                    (cons 'text (format "Opened file: %s" file-path)))))))
+                                    (text . "FILE_OPENED")
+                                    ;; (cons 'text (format "Opened file: %s" file-path))
+                                    )))))
     (error
      `((content . ,(vector (list (cons 'type "text")
                                  (cons 'text (format "Error opening file: %s" (error-message-string err))))))))))
@@ -579,12 +705,13 @@ SESSION is the MCP session for this request."
         (set-buffer-modified-p nil))
 
       ;; Create the diff
-      ;; [TODO] make buffer name include with claude
+      ;; [TODO] make buffer name include claude
       (let* ((diff-buffer-name (format "*Diff: %s*" tab-name))
              (diff-buffer (get-buffer-create diff-buffer-name t))
              (switches `("-u" "--label" ,old-path "--label" ,(or new-path old-path)))
              ;; syntax highlighting
-             (diff-font-lock-syntax 'hunk-also))
+             (diff-font-lock-syntax 'hunk-also)
+             (diff-font-lock-prettify t))
         ;; Create diff via diff-no-select
         (diff-no-select old-temp-buffer new-temp-buffer switches t diff-buffer)
         ;; Configure the diff buffer
@@ -888,7 +1015,8 @@ This function applies the changes, sends a FILE_SAVED response, and cleans up."
             (insert new-contents)
             (write-region (point-min) (point-max) old-file-path nil 'silent))
           
-          ;; Send FILE_SAVED response
+          ;; Send FILE_SAVED response.
+          ;; Don't save the file, just send the content that claude will save
           (claude-code-mcp--complete-deferred-response
            tab-name
            `((content . ,(vector
