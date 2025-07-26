@@ -2,7 +2,7 @@
 
 ;; Author: Stephen Molitor <stevemolitor@gmail.com>
 ;; Version: 0.2.0
-;; Package-Requires: ((emacs "30.0") (transient "0.9.3") (websocket "1.15")
+;; Package-Requires: ((emacs "30.0") (transient "0.9.3") (monet "0.0.1"))
 ;; Keywords: tools, ai
 ;; URL: https://github.com/stevemolitor/claude-code.el
 
@@ -16,7 +16,7 @@
 (require 'transient)
 (require 'project)
 (require 'cl-lib)
-(require 'claude-code-mcp)
+(require 'monet)
 
 ;;;; Customization options
 (defgroup claude-code nil
@@ -1101,7 +1101,7 @@ If FORCE-PROMPT is non-nil, always prompt even if no instances exist."
     (with-current-buffer buffer
       ;; Clean up MCP session if present
       (when claude-code--mcp-session
-        (claude-code-mcp--cleanup-session (buffer-name buffer)))
+        (monet-cleanup-session (buffer-name buffer)))
       ;; Remove the adjust window size advice if it was added
       (when claude-code-optimize-window-resize
         (advice-remove (claude-code--term-get-adjust-process-window-size-fn claude-code-terminal-backend) #'claude-code--adjust-window-size-advice))
@@ -1199,9 +1199,9 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
 
          ;; Start MCP server if IDE integration is enabled
          (mcp-port (when claude-code-enable-ide-integration
-                     (let ((session (claude-code-mcp--start-server buffer-name dir)))
+                     (let ((session (monet-start-server-in-directory buffer-name dir)))
                        (when session
-                         (claude-code-mcp--session-port session)))))
+                         (monet-session-port session)))))
 
          ;; Set environment variables for MCP
          (process-environment (if mcp-port
@@ -1226,7 +1226,7 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
 
       ;; Store MCP session if we started one
       (when (and claude-code-enable-ide-integration mcp-port)
-        (setq claude-code--mcp-session (gethash buffer-name claude-code-mcp--sessions)))
+        (setq claude-code--mcp-session (monet-get-session buffer-name)))
 
       ;; Configure terminal with backend-specific settings
       (claude-code--term-configure claude-code-terminal-backend)
