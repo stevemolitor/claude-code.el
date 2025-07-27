@@ -14,7 +14,8 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 - **Continue Conversations** - Resume previous sessions or fork to earlier points
 - **Read-Only Mode** - Toggle to select and copy text with normal Emacs commands and keybindings
 - **Mode Cycling** - Quick switch between default, auto-accept edits, and plan modes
-- **Desktop Notifications** - Get notified when Claude finishes processing
+- **Enhanced Notifications** - Clickable notifications with optional Org mode task tracking
+- **Workspace Integration** - Navigate to workspaces containing Claude buffers with perspective.el support
 - **Terminal Choice** - Works with both eat and vterm backends
 - **Fully Customizable** - Configure keybindings, notifications, and display preferences
 
@@ -26,6 +27,7 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 - [Claude Code CLI](https://github.com/anthropics/claude-code) installed and configured
 - Required: transient (0.7.5+)
 - Optional: eat (0.9.2+) for eat backend, vterm for vterm backend
+- Optional: perspective.el for workspace navigation features
 
 ### Using builtin use-package (Emacs 30+)
 
@@ -220,6 +222,20 @@ You can change this behavior by customizing `claude-code-newline-keybinding-styl
 - `claude-code-send-2` (`C-c c 2`) - Send "2" to Claude (useful for selecting the second option when Claude presents a numbered menu)
 - `claude-code-send-3` (`C-c c 3`) - Send "3" to Claude (useful for selecting the third option when Claude presents a numbered menu)
 
+#### Workspace Navigation Commands
+
+- `claude-code-goto-recent-workspace` (`C-c c w`) - Go to the most recent workspace from the taskmaster org file
+- `claude-code-goto-recent-workspace-and-clear` (`C-c c W`) - Go to the most recent workspace and mark the org entry as DONE
+
+#### Queue Management Commands
+
+- `claude-code-queue-browse` (`C-c c q`) - Browse and select from the task queue using minibuffer completion
+- `claude-code-queue-next` - Navigate to the next entry in the task queue
+- `claude-code-queue-previous` - Navigate to the previous entry in the task queue
+- `claude-code-queue-skip` - Skip (delete) the current queue entry and advance to the next
+- `claude-code-queue-status` - Show current queue position and total number of entries
+- `claude-code-toggle-auto-advance-queue` - Toggle auto-advance mode on/off
+
 ## Desktop Notifications
 
 claude-code.el notifies you when Claude finishes processing and is waiting for input. By default, it displays a message in the minibuffer and pulses the modeline for visual feedback.
@@ -290,113 +306,133 @@ For Windows, you can use PowerShell to create toast notifications:
 
 *Note: Linux and Windows examples are untested. Feedback and improvements are welcome!*
 
-### Claude Code Hooks Integration
+### Enhanced Notification System
 
-claude-code.el provides integration to **receive** hook events from Claude Code CLI via emacsclient. 
+The enhanced notification system provides smart, context-aware notifications with queue management:
 
-See [`examples/hooks/claude-code-hook-examples.el`](examples/hooks/claude-code-hook-examples.el) for comprehensive examples of hook listeners and setup functions.
+- **Smart Visibility Detection**: Popup notifications only appear when the Claude buffer is not currently visible in your active perspective
+- **Always Queue**: Task entries are always added to the taskmaster.org file regardless of buffer visibility  
+- **Queue Counter**: Notifications show the current number of entries in the task queue
+- **Auto-dismiss**: Simple notifications auto-dismiss after 2 seconds to reduce clutter
+- **No Duplicates**: Each buffer is limited to one queue entry (existing entries are replaced)
+- **Automatic Cleanup**: Queue entries are automatically removed when Claude buffers are closed
 
-#### Hook API
+### Org Mode Task Tracking
 
-- `claude-code-event-hook` - Emacs hook run when Claude Code CLI triggers events
-- `claude-code-handle-hook` - **Unified entry point** for all Claude Code CLI hooks. Call this from your CLI hooks with `(type buffer-name &rest args)` and JSON data as additional emacsclient arguments
+claude-code.el includes an optional Org mode integration that automatically tracks completed Claude tasks in a persistent log:
+
+#### Features
+
+- **Persistent Task Log**: All completed Claude tasks are saved to `~/.claude/taskmaster.org`
+- **Automatic Timestamps**: Each task entry includes completion timestamp
+- **Clickable Buffer Links**: Elisp links in org entries allow instant buffer switching
+- **Smart Display**: Popup notifications only appear when Claude buffer is not currently visible (taskmaster.org entries are always created)
+- **Dual Event Tracking**: Captures both task completion and session stop events
+- **Automatic Queue Cleanup**: Queue entries are automatically removed when Claude buffers are closed
+- **No Duplicates**: Each buffer is limited to one queue entry to prevent clutter
 
 #### Setup
 
-Before configuring hooks, you need to start the Emacs server so that `emacsclient` can communicate with your Emacs instance:
+To enable Org mode notifications, add this to your configuration:
 
 ```elisp
-;; Start the Emacs server (add this to your init.el)
-(start-server)
+;; Load the org notifications system
+(require 'claude-code-org-notifications)
 
-;; Add your hook listeners using standard Emacs functions
-(add-hook 'claude-code-event-hook 'my-claude-hook-listener)
+;; Set up the hook listener to receive events
+(claude-code-org-notifications-setup)
+
+;; Configure Claude Code CLI hooks in settings.json (this will set up the CLI side)
+(claude-code-setup-hooks)
 ```
 
-#### Custom Hook Listener
+This will:
+1. Set up the Emacs hook listener to receive Claude Code events
+2. Create the necessary directory structure (`~/.claude/`)
+3. Generate or update your Claude Code settings.json with notification hooks
+4. Enable automatic task logging to the taskmaster.org file
 
-Hook listeners receive a message plist with these keys:
-- `:type` - Hook type (e.g., `'notification`, `'stop`, `'pre-tool-use`, `'post-tool-use`)
-- `:buffer-name` - Claude buffer name from `$CLAUDE_BUFFER_NAME`
-- `:json-data` - JSON payload from Claude CLI
-- `:args` - List of additional arguments (when using extended configuration)
+#### Hook Integration
+
+The org-mode notifications now use the new Claude Code hooks system introduced in the supportClaudeCodeHooks branch. This provides better integration and more reliable event handling.
+
+#### Manual Hook Configuration
+
+If you prefer to manually configure hooks or already have a settings.json file, you can call:
 
 ```elisp
-;; Define your own hook listener function
-(defun my-claude-hook-listener (message)
-  "Custom listener for Claude Code hooks.
-MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
-  (let ((hook-type (plist-get message :type))
-        (buffer-name (plist-get message :buffer-name))
-        (json-data (plist-get message :json-data))
-        (args (plist-get message :args)))
-    (cond 
-     ((eq hook-type 'notification)
-      (message "Claude is ready in %s! JSON: %s" buffer-name json-data))
-     ((eq hook-type 'stop)  
-      (message "Claude finished in %s! JSON: %s" buffer-name json-data))
-     (t
-      (message "Claude hook: %s with JSON: %s" hook-type json-data)))))
-
-;; Add the hook listener using standard Emacs hook functions
-(add-hook 'claude-code-event-hook 'my-claude-hook-listener)
+(claude-code-setup-hooks)
 ```
 
-See the examples file for complete listeners that demonstrate notifications, logging, org-mode integration, and using extra arguments from the `:args` field.
+This function intelligently merges notification hooks with your existing configuration.
 
-#### Claude Code CLI Configuration
+#### Hook Context Variables
 
-Configure Claude Code CLI hooks to call `claude-code-handle-hook` via emacsclient by passing JSON data as an additional argument:
+Claude Code automatically exports the `CLAUDE_BUFFER_NAME` environment variable to the shell session, making it available to hooks and child processes. This allows hooks to:
 
-```json
-{
-  "hooks": {
-    "Notification": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "emacsclient --eval \"(claude-code-handle-hook 'notification \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\""
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "emacsclient --eval \"(claude-code-handle-hook 'stop \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\""
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+- Identify which Claude buffer triggered the notification
+- Pass buffer context to external notification handlers
+- Enable buffer-specific actions in custom scripts
 
-The command pattern:  
-```bash
-emacsclient --eval "(claude-code-handle-hook 'notification \"$CLAUDE_BUFFER_NAME\")" "$(cat)" "ARG1" "ARG2" "ARG3"
-```
+The environment variable contains the full buffer name (e.g., `*claude:/path/to/project:default*`) and is automatically set when Claude starts.
 
-Where:
-- `"$(cat)"` - JSON data from stdin (always required)
-- `ARG1` is `"$PWD"` - current working directory  
-- `ARG2` is `"$(date -Iseconds)"` - timestamp
-- `ARG3` is `"$$"` - process ID
+#### Queue Browser and Navigation
 
-`claude-code-handle-hook` creates a message plist sent to listeners:
+The notification system includes a powerful queue browser for managing multiple completed tasks:
+
+- **Queue Browser**: Use `C-c c q` to browse and select from the task queue using minibuffer completion  
+- **Numbered Entries**: Tasks are displayed as numbered list (e.g., "1. *claude:/path/to/project:default*")
+- **Direct Navigation**: Select any queue entry to instantly jump to that Claude buffer and workspace
+- **Position Tracking**: The system remembers your current position in the queue across commands
+
+#### Workspace Integration
+
+The notification system includes workspace support that integrates with project-based workflows:
+
+- **Automatic Workspace Detection**: Claude automatically detects your current project/workspace directory when starting
+- **Clickable Workspace Links**: Org mode entries include clickable workspace links that switch to the workspace directory
+- **Workspace Buttons**: Notification popups include "Open Workspace" and "Open & Clear" buttons for quick workspace switching
+- **Multiple Instance Support**: Works seamlessly with multiple Claude instances in the same workspace
+- **Keyboard Commands**: Use `C-c c w` to go to the most recent workspace or `C-c c W` to go there and clear the org entry
+
+When Claude completes a task, the workspace information is automatically extracted from the buffer name and included in both the org mode log entries and notification popups. The "Open & Clear" button and `C-c c W` command allow you to quickly navigate to a workspace and mark the corresponding org entry as DONE, helping you maintain a clean task queue.
+
+#### Queue Navigation Commands
+
+The notification system includes several commands for navigating and managing the task queue:
+
+- **Browse Queue**: Use `claude-code-queue-browse` to view and select from all queue entries using minibuffer completion
+- **Next Entry**: Use `claude-code-queue-next` to advance to the next entry in the queue
+- **Previous Entry**: Use `claude-code-queue-previous` to go back to the previous queue entry  
+- **Skip Entry**: Use `claude-code-queue-skip` to delete the current queue entry and advance to the next
+- **Queue Status**: Use `claude-code-queue-status` to show your current position and total queue size
+
+These commands maintain queue position tracking, so you can navigate through your completed tasks systematically. The queue browser provides the most user-friendly interface with numbered entries and completion.
+
+#### Auto-Advance Queue Mode
+
+Claude-code.el includes an optional auto-advance mode for streamlined queue processing:
+
+- **Auto-Advance Mode**: Enable `claude-code-auto-advance-queue` to automatically advance through the task queue
+- **Seamless Workflow**: When enabled, pressing enter in any Claude buffer clears it from the queue and jumps to the next waiting task
+- **Smart Navigation**: Automatically switches to a different Claude buffer's workspace and enters insert mode (with evil-mode)
+- **Intelligent Filtering**: Only advances to different Claude buffers, never stays in the current buffer
+- **Queue Status**: Shows remaining queue count when advancing
+- **Toggle Command**: Use `claude-code-toggle-auto-advance-queue` to quickly enable/disable the mode
+
+To enable auto-advance mode in your configuration:
+
 ```elisp
-(list :type 'notification 
-      :buffer-name "$CLAUDE_BUFFER_NAME"
-      :json-data "$(cat)" 
-      :args '("ARG1" "ARG2" "ARG3"))
+(setq claude-code-auto-advance-queue t)
 ```
 
-See the [Claude Code hooks documentation](https://docs.anthropic.com/en/docs/claude-code/hooks) for details on setting up CLI hooks.
+Or toggle it interactively:
+
+```elisp
+M-x claude-code-toggle-auto-advance-queue
+```
+
+This mode is perfect for processing multiple completed Claude tasks efficiently - just respond to each task and you'll automatically be taken to the next different one. The system ensures you never get stuck in the same buffer and always advance to a truly different Claude instance.
 
 ## Tips and Tricks
 
@@ -410,19 +446,19 @@ See the [Claude Code hooks documentation](https://docs.anthropic.com/en/docs/cla
   (setq auto-revert-use-notify nil)
   ``` 
 
-## Customization
+## Customization {#customization}
 
 ```elisp
-;; Set your key binding for the command map.
+;; Set your key binding for the command map
 (global-set-key (kbd "C-c C-a") claude-code-command-map)
 
-;; Set terminal type for the Claude terminal emulation (default is "xterm-256color").
-;; This determines terminal capabilities like color support.
-;; See the documentation for eat-term-name for more information.
+;; Set terminal type for the Claude terminal emulation (default is "xterm-256color")
+;; This determines terminal capabilities like color support
+;; See the documentation for eat-term-name for more information
 (setq claude-code-term-name "xterm-256color")
 
-;; Change the path to the Claude executable (default is "claude").
-;; Useful if Claude is not in your PATH or you want to use a specific version.
+;; Change the path to the Claude executable (default is "claude")
+;; Useful if Claude is not in your PATH or you want to use a specific version
 (setq claude-code-program "/usr/local/bin/claude")
 
 ;; Set command line arguments for Claude
@@ -433,15 +469,15 @@ See the [Claude Code hooks documentation](https://docs.anthropic.com/en/docs/cla
 (add-hook 'claude-code-start-hook 'my-claude-setup-function)
 
 ;; Adjust initialization delay (default is 0.1 seconds)
-;; This helps prevent terminal layout issues if the buffer is displayed before Claude is fully ready.
+;; This helps prevent terminal layout issues if the buffer is displayed before Claude is fully ready
 (setq claude-code-startup-delay 0.2)
 
 ;; Configure the buffer size threshold for confirmation prompt (default is 100000 characters)
 ;; If a buffer is larger than this threshold, claude-code-send-region will ask for confirmation
-;; before sending the entire buffer to Claude.
+;; before sending the entire buffer to Claude
 (setq claude-code-large-buffer-threshold 100000)
 
-;; Configure key binding style for entering newlines and sending messages in Claude buffers.
+;; Configure key binding style for entering newlines and sending messages in Claude buffers
 ;; Available styles:
 ;;   'newline-on-shift-return - S-return inserts newline, RET sends message (default)
 ;;   'newline-on-alt-return   - M-return inserts newline, RET sends message
@@ -449,12 +485,12 @@ See the [Claude Code hooks documentation](https://docs.anthropic.com/en/docs/cla
 ;;   'super-return-to-send    - RET inserts newline, s-return sends message (Command+Return on macOS)
 (setq claude-code-newline-keybinding-style 'newline-on-shift-return)
 
-;; Enable or disable notifications when Claude finishes and awaits input (default is t).
+;; Enable or disable notifications when Claude finishes and awaits input (default is t)
 (setq claude-code-enable-notifications t)
 
-;; Customize the notification function (default is claude-code--default-notification).
-;; The function should accept two arguments: title and message.
-;; The default function displays a message and pulses the modeline for visual feedback.
+;; Customize the notification function (default is claude-code--default-notification)
+;; The function should accept two arguments: title and message
+;; The default function displays a message and pulses the modeline for visual feedback
 (setq claude-code-notification-function 'claude-code--default-notification)
 
 ;; Example: Use your own notification function
@@ -464,9 +500,9 @@ See the [Claude Code hooks documentation](https://docs.anthropic.com/en/docs/cla
   (message "[%s] %s" title message))
 (setq claude-code-notification-function 'my-claude-notification)
 
-;; Configure kill confirmation behavior (default is t).
-;; When t, claude-code-kill prompts for confirmation before killing instances.
-;; When nil, kills Claude instances without confirmation.
+;; Configure kill confirmation behavior (default is t)
+;; When t, claude-code-kill prompts for confirmation before killing instances
+;; When nil, kills Claude instances without confirmation
 (setq claude-code-confirm-kill t)
 
 ;; Enable/disable window resize optimization (default is t)
@@ -482,6 +518,12 @@ See the [Claude Code hooks documentation](https://docs.anthropic.com/en/docs/cla
 ;; when you run delete-other-windows or similar commands, keeping the
 ;; Claude buffer visible and accessible.
 (setq claude-code-no-delete-other-windows t)
+
+;; Enable auto-advance queue mode (default is nil)
+;; When enabled, pressing enter in a Claude buffer will clear it from the
+;; task queue and automatically advance to the next queue entry.
+;; This provides a streamlined workflow for processing multiple completed tasks.
+(setq claude-code-auto-advance-queue t)
 ```
 
 ### Customizing Window Position
@@ -591,7 +633,6 @@ Or to apply it only to Claude buffers:
           (lambda ()
             ;; Reduce line spacing to fix vertical bar gaps
             (setq-local line-spacing 0.1))) 
-```
 
 ## Demo
 
@@ -632,15 +673,9 @@ When using the vterm terminal backend, there are additional customization option
 ```elisp
 ;; Enable/disable buffering to prevent flickering on multi-line input (default is t)
 ;; When enabled, vterm output that appears to be redrawing multi-line input boxes
-;; will be buffered briefly and processed in a single batch
+;; will be buffered briefly (1ms) and processed in a single batch
 ;; This prevents flickering when Claude redraws its input box as it expands
 (setq claude-code-vterm-buffer-multiline-output t)
-
-;; Control the delay before processing buffered vterm output (default is 0.01)
-;; This is the time in seconds that vterm waits to collect output bursts
-;; A longer delay may reduce flickering more but could feel less responsive
-;; The default of 0.01 seconds (10ms) provides a good balance
-(setq claude-code-vterm-multiline-delay 0.01)
 ```
 
 #### Vterm Scrollback Configuration

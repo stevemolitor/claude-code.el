@@ -350,8 +350,15 @@ for each directory across multiple invocations.")
     (define-key map (kbd "3") 'claude-code-send-3)
     (define-key map (kbd "M") 'claude-code-cycle-mode)
     (define-key map (kbd "o") 'claude-code-send-buffer-file)
+    (define-key map (kbd "w") 'claude-code-goto-recent-workspace)
+    (define-key map (kbd "W") 'claude-code-goto-recent-workspace-and-clear)
+    (define-key map (kbd "]") 'claude-code-queue-next)
+    (define-key map (kbd "[") 'claude-code-queue-previous)
+    (define-key map (kbd "D") 'claude-code-queue-skip)
+    (define-key map (kbd "q") 'claude-code-queue-browse)
     map)
   "Keymap for Claude commands.")
+
 
 ;;;; Transient Menus
 ;;;###autoload (autoload 'claude-code-transient "claude-code" nil t)
@@ -388,6 +395,16 @@ for each directory across multiple invocations.")
     ("1" "Send \"1\"" claude-code-send-1)
     ("2" "Send \"2\"" claude-code-send-2)
     ("3" "Send \"3\"" claude-code-send-3)
+    ]
+   ["Workspace Navigation"
+    ("w" "Go to recent workspace" claude-code-goto-recent-workspace)
+    ("W" "Go to workspace and clear" claude-code-goto-recent-workspace-and-clear)
+    ]
+   ["Queue Navigation"
+    ("]" "Next in queue" claude-code-queue-next)
+    ("[" "Previous in queue" claude-code-queue-previous)
+    ("D" "Skip current entry" claude-code-queue-skip)
+    ("q" "Browse queue" claude-code-queue-browse)
     ]])
 
 ;;;###autoload (autoload 'claude-code-slash-commands "claude-code" nil t)
@@ -476,6 +493,9 @@ Returns the buffer containing the terminal.")
 (declare-function eat-term-redisplay "eat" (terminal))
 (declare-function eat-term-reset "eat" (terminal))
 (declare-function eat-term-send-string "eat" (terminal string))
+
+;; Provide claude-code early (following magit pattern)
+(provide 'claude-code)
 
 ;; Helper to ensure eat is loaded
 (defun claude-code--ensure-eat ()
@@ -1202,6 +1222,14 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
       ;; Add cleanup hook to remove directory mappings when buffer is killed
       (add-hook 'kill-buffer-hook #'claude-code--cleanup-directory-mapping nil t)
 
+      ;; Add cleanup hook to remove queue entries when buffer is killed  
+      (when (fboundp 'claude-code--cleanup-queue-entries)
+        (add-hook 'kill-buffer-hook #'claude-code--cleanup-queue-entries nil t))
+
+      ;; Add buffer to current perspective if persp-mode is active
+      (when (and (featurep 'persp-mode) (fboundp 'persp-add-buffer))
+        (persp-add-buffer buffer))
+
       ;; run start hooks
       (run-hooks 'claude-code-start-hook)
 
@@ -1840,7 +1868,12 @@ and managing Claude sessions."
   :global t
   :group 'claude-code)
 
-;;;; Provide the feature
+;; Conditionally load extension modules (following magit pattern)
+(cl-eval-when (load eval)
+  (let ((notifications-file (expand-file-name "claude-code-org-notifications.el" 
+                                               (file-name-directory (or load-file-name buffer-file-name)))))
+    (when (file-exists-p notifications-file)
+      (load notifications-file nil t))))
 (provide 'claude-code)
 
 ;;; claude-code.el ends here
