@@ -704,31 +704,24 @@ SWITCHES are optional command-line arguments for PROGRAM."
                         program))
          (process-environment (cons (format "CLAUDE_BUFFER_NAME=%s" buffer-name)
                                     process-environment))
-         (buffer (get-buffer-create buffer-name))
-         ;; Set environment variable to enable IDE intgration
-         (vterm-environment (if claude-code-ide-integration-p
-                                (cons "ENABLE_IDE_INTEGRATION=1" vterm-environment)
-                              vterm-environment))))
-  (with-current-buffer buffer
-    ;; Add hooks and start MCP websocket server if IDE integration is enabled
-    (when claude-code-ide-integration-p
-      (claude-code-mcp-start-websocket-server)
-      (claude-code-mcp-register-hooks))
+         (buffer (get-buffer-create buffer-name)))
+    (with-current-buffer buffer
+      ;; MCP server is already started via monet in claude-code-start
 
-    ;; vterm needs to have an open window before starting the claude
-    ;; process; otherwise Claude doesn't seem to know how wide its
-    ;; terminal window is and it draws the input box too wide. But
-    ;; the user may not want to pop to the buffer. For some reason
-    ;; `display-buffer' also leads to wonky results, it has to be
-    ;; `pop-to-buffer'. So, show the buffer, start vterm-mode (which
-    ;; starts the vterm-shell claude process), and then hide the
-    ;; buffer. We'll optionally re-open it later.
-    ;;
-    ;; [TODO] see if there's a cleaner way to do this.
-    (pop-to-buffer buffer)
-    (vterm-mode)
-    (delete-window (get-buffer-window buffer))
-    buffer))
+      ;; vterm needs to have an open window before starting the claude
+      ;; process; otherwise Claude doesn't seem to know how wide its
+      ;; terminal window is and it draws the input box too wide. But
+      ;; the user may not want to pop to the buffer. For some reason
+      ;; `display-buffer' also leads to wonky results, it has to be
+      ;; `pop-to-buffer'. So, show the buffer, start vterm-mode (which
+      ;; starts the vterm-shell claude process), and then hide the
+      ;; buffer. We'll optionally re-open it later.
+      ;;
+      ;; [TODO] see if there's a cleaner way to do this.
+      (pop-to-buffer buffer)
+      (vterm-mode)
+      (delete-window (get-buffer-window buffer))
+      buffer)))
 
 ;; Helper to ensure vterm is loaded
 (defun claude-code--ensure-vterm ()
