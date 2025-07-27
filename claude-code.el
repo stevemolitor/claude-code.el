@@ -727,7 +727,9 @@ _BACKEND is the terminal backend type (should be \\='vterm)."
 _BACKEND is the terminal backend type (should be \\='vterm)."
   (claude-code--ensure-vterm)
   (vterm-copy-mode -1)
-  (setq-local cursor-type nil))
+  (setq-local cursor-type nil)
+  ;; Restore keybindings that were lost when vterm-copy-mode reset the keymap
+  (claude-code--term-setup-keymap 'vterm))
 
 (cl-defmethod claude-code--term-in-read-only-p ((_backend (eql vterm)))
   "Check if vterm terminal is in read-only mode.
