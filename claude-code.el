@@ -394,29 +394,36 @@ for each directory across multiple invocations.")
 (transient-define-prefix claude-code-slash-commands ()
   "Claude slash commands menu."
   ["Slash Commands"
-   ["Basic Commands"
+   ["Core Commands"
+    ("h" "Help" (lambda () (interactive) (claude-code--do-send-command "/help")))
     ("c" "Clear" (lambda () (interactive) (claude-code--do-send-command "/clear")))
-    ("o" "Compact" (lambda () (interactive) (claude-code--do-send-command "/compact")))
+    ("C" "Compact" (lambda () (interactive) (claude-code--do-send-command "/compact")))
+    ("s" "Status" (lambda () (interactive) (claude-code--do-send-command "/status")))
+    ("d" "Doctor" (lambda () (interactive) (claude-code--do-send-command "/doctor")))]
+
+   ["Configuration & Setup"
     ("f" "Config" (lambda () (interactive) (claude-code--do-send-command "/config")))
-    ("t" "Cost" (lambda () (interactive) (claude-code--do-send-command "/cost")))
-    ("d" "Doctor" (lambda () (interactive) (claude-code--do-send-command "/doctor")))
-    ("x" "Exit" (lambda () (interactive) (claude-code--do-send-command "/exit")))
-    ("h" "Help" (lambda () (interactive) (claude-code--do-send-command "/help")))]
-
-   ["Special Commands"
     ("i" "Init" (lambda () (interactive) (claude-code--do-send-command "/init")))
-    ("p" "PR" (lambda () (interactive) (claude-code--do-send-command "/pr")))
-    ("r" "Release" (lambda () (interactive) (claude-code--do-send-command "/release")))
-    ("b" "Bug" (lambda () (interactive) (claude-code--do-send-command "/bug")))
-    ("v" "Review" (lambda () (interactive) (claude-code--do-send-command "/review")))]
+    ("m" "Memory" (lambda () (interactive) (claude-code--do-send-command "/memory")))
+    ("a" "Add-dir" (lambda () (interactive) (claude-code--do-send-command "/add-dir")))
+    ("t" "Terminal-setup" (lambda () (interactive) (claude-code--do-send-command "/terminal-setup")))]
 
-   ["Additional Commands"
-    ("e" "Terminal" (lambda () (interactive) (claude-code--do-send-command "/terminal")))
-    ("m" "Theme" (lambda () (interactive) (claude-code--do-send-command "/theme")))
+   ["Account & Model"
+    ("l" "Login" (lambda () (interactive) (claude-code--do-send-command "/login")))
+    ("L" "Logout" (lambda () (interactive) (claude-code--do-send-command "/logout")))
+    ("M" "Model" (lambda () (interactive) (claude-code--do-send-command "/model")))
+    ("p" "Permissions" (lambda () (interactive) (claude-code--do-send-command "/permissions")))
+    ("$" "Cost" (lambda () (interactive) (claude-code--do-send-command "/cost")))]
+
+   ["Development Tools"
+    ("r" "Review" (lambda () (interactive) (claude-code--do-send-command "/review")))
+    ("P" "PR comments" (lambda () (interactive) (claude-code--do-send-command "/pr_comments")))
+    ("A" "Agents" (lambda () (interactive) (claude-code--do-send-command "/agents")))
     ("v" "Vim" (lambda () (interactive) (claude-code--do-send-command "/vim")))
-    ("a" "Approved" (lambda () (interactive) (claude-code--do-send-command "/approved")))
-    ("l" "Logout" (lambda () (interactive) (claude-code--do-send-command "/logout")))
-    ("g" "Login" (lambda () (interactive) (claude-code--do-send-command "/login")))]
+    ("S" "MCP" (lambda () (interactive) (claude-code--do-send-command "/mcp")))]
+
+   ["Support"
+    ("b" "Bug" (lambda () (interactive) (claude-code--do-send-command "/bug")))]
    ])
 
 ;;;; Terminal abstraction layer
