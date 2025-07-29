@@ -414,56 +414,43 @@
     (mapconcat 'identity (reverse results) "\n\n")))
 
 (claude-code-defmcp mcp-emacs-keymap-analysis (buffer-names &optional include-global)
-  "Analyze keymaps for buffer contexts and write to files."
+  "Dump keymaps for buffer contexts to files."
   :mcp-description "Analyze keymaps for one or more buffer contexts"
   :mcp-schema '((buffer-names . ("array" "List of buffer names to analyze"))
                 (include-global . ("boolean" "Include global keymap analysis")))
   (unless (file-directory-p "/tmp/ClaudeWorkingFolder")
     (make-directory "/tmp/ClaudeWorkingFolder" t))
   
-  (let ((successful-files '())
-        (with-global (or include-global nil)))
+  (let ((successful-files '()))
     (dolist (buffer-name buffer-names)
       (condition-case err
-          (with-current-buffer buffer-name
-            (let ((analysis "")
-                  (sanitized-name (replace-regexp-in-string "[^a-zA-Z0-9-_]" "_" buffer-name))
-                  (filename (format "/tmp/ClaudeWorkingFolder/keymap_analysis_%s.txt" 
-                                   (replace-regexp-in-string "[^a-zA-Z0-9-_]" "_" buffer-name)))
-                  (major-keymap (current-local-map))
-                  (minor-keymaps (current-minor-mode-maps)))
+          (let ((filename (format "/tmp/ClaudeWorkingFolder/keymap_analysis_%s.txt" 
+                                 (replace-regexp-in-string "[^a-zA-Z0-9-_]" "_" buffer-name))))
+            (with-temp-buffer
+              (insert (format "=== KEYMAP ANALYSIS FOR BUFFER: %s ===\n\n" buffer-name))
               
-              (setq analysis (concat analysis (format "=== BUFFER: %s ===\n" (buffer-name))))
-              (setq analysis (concat analysis (format "Major mode: %s\n\n" (symbol-name major-mode))))
+              ;; Get keymap data without creating popup windows
+              (let ((target-buffer (get-buffer buffer-name)))
+                (if target-buffer
+                    (progn
+                      (insert (format "Major mode: %s\n\n" 
+                                     (buffer-local-value 'major-mode target-buffer)))
+                      (insert "=== BUFFER KEY BINDINGS ===\n")
+                      ;; Capture bindings directly without creating popups
+                      (let ((inhibit-message t)
+                            (help-window-setup-finish-functions nil)
+                            (bindings-output ""))
+                        (save-window-excursion
+                          (with-temp-buffer
+                            (describe-buffer-bindings target-buffer nil include-global)
+                            (setq bindings-output (buffer-string))))
+                        (insert bindings-output))
+                      (when include-global
+                        (insert "\n=== NOTE: Global bindings included above ===\n")))
+                  (insert (format "Error: Buffer '%s' not found\n" buffer-name))))
               
-              ;; Major mode keymap
-              (when major-keymap
-                (setq analysis (concat analysis "=== MAJOR MODE KEYMAP ===\n"))
-                (setq analysis (concat analysis (save-window-excursion 
-                                                (substitute-command-keys "\\{major-keymap}")) "\n\n")))
-              
-              ;; Minor mode keymaps
-              (when minor-keymaps
-                (setq analysis (concat analysis "=== MINOR MODE KEYMAPS ===\n"))
-                (let ((keymap-index 0))
-                  (dolist (keymap minor-keymaps)
-                    (when keymap
-                      (setq keymap-index (1+ keymap-index))
-                      (setq analysis (concat analysis (format "Minor mode keymap %d:\n" keymap-index)))
-                      (condition-case err
-                          (let ((keymap-desc (substitute-command-keys (format "\\{%s}" keymap))))
-                            (setq analysis (concat analysis keymap-desc "\n\n")))
-                        (error 
-                         (setq analysis (concat analysis "Error describing keymap: " (error-message-string err) "\n\n"))))))))
-              
-              ;; Global keymap (optional)
-              (when with-global
-                (setq analysis (concat analysis "=== GLOBAL KEYMAP ===\n"))
-                (setq analysis (concat analysis (save-window-excursion 
-                                                (substitute-command-keys "\\{global-map}")) "\n\n")))
-              
-              (write-region analysis nil filename)
-              (push filename successful-files)))
+              (write-region (point-min) (point-max) filename))
+            (push filename successful-files))
         (error
          (message "Error processing buffer '%s': %s" buffer-name (error-message-string err)))))
     
@@ -525,7 +512,9 @@
   :mcp-schema '((file-paths . ("array" "List of file paths to check")))
   (let ((results '()))
     (dolist (file-path file-paths)
-      (let ((temp-buffer (find-file-noselect file-path)))
+      (let* ((existing-buffer (find-buffer-visiting file-path))
+             (temp-buffer (find-file-noselect file-path))
+             (buffer-was-created (not existing-buffer)))
         (unwind-protect
             (with-current-buffer temp-buffer
               (condition-case err
@@ -538,7 +527,8 @@
                               (line-number-at-pos (point))
                               (current-column)
                               (error-message-string err)) results))))
-          (kill-buffer temp-buffer))))
+          (when buffer-was-created
+            (kill-buffer temp-buffer)))))
     (mapconcat 'identity (reverse results) "\n")))
 
 (claude-code-defmcp mcp-get-buffer-list (&optional include-details)
