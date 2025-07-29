@@ -506,6 +506,22 @@ The package includes comprehensive example tools in `examples/mcp-tools.el` that
 
 **📖 For detailed documentation of all 22 available MCP tools with parameters, usage examples, and return values, see [CLAUDE.md](CLAUDE.md#available-tools-from-examplesmcp-toolsel)**
 
+### Security Considerations
+
+**⚠️ Important Security Notice**: The MCP tools provide Claude with broad access to your Emacs environment:
+
+- **Buffer Access**: Claude can read any buffer open in Emacs (source code, personal notes, credentials, etc.)
+- **File Access**: Claude can access files in your current working directory and subdirectories
+- **Sensitive Data Risk**: Emacs users often have sensitive information in their editor (SSH keys, API tokens, password files)
+
+**Assume Claude has access to any sensitive information in your Emacs session.** The combination of file access + web access creates potential for data exfiltration attacks ([Lethal Trifecta](https://simonwillison.net/tags/lethal-trifecta/)). Consider:
+- Using dedicated Emacs sessions for Claude interactions
+- Closing sensitive buffers before enabling MCP integration  
+- Being cautious about which directories you run Claude from
+- **Limiting Claude's web access** to prevent data exfiltration
+
+For complete security details, see [CLAUDE.md Security Section](CLAUDE.md#security-considerations).
+
 ### Uninstalling
 
 To remove the MCP server from Claude Code CLI:

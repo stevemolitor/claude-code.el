@@ -8,6 +8,7 @@ import {
   Tool
 } from "@modelcontextprotocol/sdk/types.js";
 import * as net from 'net';
+import { validateToolParameters, SecurityError } from './security.js';
 
 /**
  * Connection to Emacs TCP server for tool discovery and execution
@@ -173,6 +174,9 @@ class ClaudeCodeMCPServer {
       const { name, arguments: args } = request.params;
       
       try {
+        // Validate parameters for security
+        validateToolParameters(name, args || {});
+        
         const result = await this.emacsConnection.callTool(name, args || {});
         
         return {
@@ -185,6 +189,20 @@ class ClaudeCodeMCPServer {
         };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
+        
+        // Don't expose potentially sensitive error details for security errors
+        if (error instanceof SecurityError) {
+          return {
+            content: [
+              {
+                type: "text", 
+                text: `Security validation failed for tool ${name}: ${errorMessage}`
+              }
+            ],
+            isError: true
+          };
+        }
+        
         return {
           content: [
             {

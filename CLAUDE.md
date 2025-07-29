@@ -281,10 +281,62 @@ The `:mcp-schema` uses a simplified format:
 2. **Bridge process crashes**: Check `*claude-code-mcp-bridge*` buffer for errors
 3. **Permission denied**: Add `/tmp/ClaudeWorkingFolder` to Claude Code settings
 4. **Port conflicts**: Change `claude-code-mcp-port` to an available port
+5. **Security validation errors**: Check parameter format - ensure file paths, symbols, and content follow Emacs conventions
+
+### Security
+
+The MCP server includes comprehensive input validation to prevent injection attacks:
+
+#### Blocked Patterns
+- **Elisp injection**: `"); (shell-command`, `eval`, `load-file`, etc.
+- **Function definitions**: `defun`, `setq`, `defvar`, `lambda`
+- **File operations**: `delete-file`, `delete-directory`, `write-file`
+- **Directory traversal**: `../` sequences in file paths
+- **Shell commands**: `;`, `|`, `&`, backticks, `${}`, `$()`
+
+#### Parameter Validation
+- **File paths**: Restricted to `/tmp/ClaudeWorkingFolder/` for absolute paths
+- **Buffer names**: Length limits and injection pattern detection
+- **Symbol names**: Validates proper Emacs symbol format (`[a-zA-Z][a-zA-Z0-9\-_:+*/?<>=!]*`)
+- **Search patterns**: Length limits and dangerous pattern detection
+- **Org content**: Length limits and injection pattern validation
+
+#### Legitimate Usage Preserved
+- Emacs variables with special characters (`c++-mode-hook`, `find/grep-command`)
+- System buffers (`*Messages*`, `*scratch*`)
+- Standard file operations within allowed directories
+- Regular org-mode content and search operations
+
+Security validation occurs at the TypeScript layer before parameters reach Emacs, providing defense-in-depth protection.
+
+#### Security Considerations
+
+**Important**: The MCP tools provide Claude with broad access to your Emacs environment and filesystem:
+
+**Buffer Access**: Claude can read any buffer open in Emacs, including:
+- Source code and configuration files
+- Personal notes and org-mode files with sensitive data
+- Password files, SSH keys, or API credentials you may have opened
+- Any content in your Emacs session
+
+**File Access**: The `mcp-open-file` tool can access:
+- Any file in the current working directory and subdirectories (relative paths)
+- Files in `/tmp/ClaudeWorkingFolder/` (absolute paths)
+- **Blocked**: Absolute paths outside `/tmp/ClaudeWorkingFolder/` and directory traversal (`../`)
+
+**Emacs Users Often Have Sensitive Data**: Many Emacs users keep sensitive information in their editor environment - configuration files with tokens, personal notes, password managers, SSH configs, etc. **Assume Claude has access to any sensitive information in your Emacs session.**
+
+**Data Exfiltration Risk**: Combining file/buffer reading with web access creates potential for data exfiltration attacks (see [Lethal Trifecta](https://simonwillison.net/tags/lethal-trifecta/)). Consider:
+- Limiting Claude's web access when using MCP tools
+- Closing sensitive buffers before enabling MCP integration
+- Using dedicated Emacs sessions for Claude interactions
+- Being cautious about which directories you run Claude from
+- Using Claude Code's directory restrictions in settings
 
 ### File Locations
 
 - MCP server source: `mcp-server/src/index.ts`
+- Security validation: `mcp-server/src/security.ts`
 - Example tools: `examples/mcp-tools.el`
 - Temp file directory: `/tmp/ClaudeWorkingFolder/`
 - Bridge process logs: `*claude-code-mcp-bridge*` buffer
