@@ -16,6 +16,7 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 - **Mode Cycling** - Quick switch between default, auto-accept edits, and plan modes
 - **Desktop Notifications** - Get notified when Claude finishes processing
 - **Terminal Choice** - Works with both eat and vterm backends
+- **MCP Server Integration** - Expose Emacs functionality to MCP-compatible clients through a built-in server
 - **Fully Customizable** - Configure keybindings, notifications, and display preferences
 
 ## Installation {#installation}
@@ -397,6 +398,121 @@ Where:
 ```
 
 See the [Claude Code hooks documentation](https://docs.anthropic.com/en/docs/claude-code/hooks) for details on setting up CLI hooks.
+
+## MCP Server Integration
+
+claude-code.el includes a built-in MCP (Model Context Protocol) server that allows MCP-compatible clients to interact with Emacs through a rich set of tools. This enables external applications to access Emacs functionality like buffer management, org-mode operations, and introspection.
+
+### Features
+
+The MCP server provides a framework for exposing Emacs functionality, but **no tools are enabled by default**. You must load the example tools or define your own:
+
+- **Emacs Introspection** - Search symbols, get documentation, access variable values
+- **Buffer Operations** - View buffer contents, get buffer information  
+- **File Management** - Open files, check parentheses balance in Lisp files
+- **Org-Mode Integration** - Access agenda, manage TODO items, schedule tasks
+- **Custom Tools** - Define your own MCP tools using the `claude-code-defmcp` macro
+
+### Setup
+
+The MCP server starts automatically when you run `claude-code` if `claude-code-mcp-enabled` is `t` (the default), but provides no tools until you load them.
+
+#### Quick Start
+
+1. **Build the MCP server** (first time only):
+   ```bash
+   cd ~/.emacs.d/.local/straight/repos/claude-code.el/mcp-server
+   npm install && npm run build
+   ```
+
+2. **Load example tools** (required to have any MCP functionality):
+   ```elisp
+   (load-file "~/.emacs.d/.local/straight/repos/claude-code.el/examples/mcp-tools.el")
+   ```
+
+3. **Install in Claude Code CLI**:
+   ```elisp
+   M-x claude-code-install-mcp-server
+   ```
+
+#### Directory Permissions
+
+The `view_buffer` and `get_agenda` functions write temporary files to `/tmp/ClaudeWorkingFolder/`. You need to add this directory to your Claude Code settings to allow access.
+
+Add the following to your `~/.claude/settings.json`:
+
+```json
+{
+  "permissions": {
+    "additionalDirectories": ["/tmp/ClaudeWorkingFolder"]
+  }
+}
+```
+
+### Available Commands
+
+- `claude-code-start-mcp-server` - Start the MCP server manually
+- `claude-code-stop-mcp-server` - Stop the MCP server  
+- `claude-code-restart-mcp-server` - Restart the MCP server
+- `claude-code-mcp-status` - Show server status
+- `claude-code-install-mcp-server` - Install server in Claude Code CLI configuration
+
+### Configuration
+
+Customize MCP server behavior:
+
+```elisp
+;; Enable/disable MCP server (default: t)
+(setq claude-code-mcp-enabled t)
+
+;; Change MCP server port (default: 8765)
+(setq claude-code-mcp-port 8765)
+```
+
+### Loading Tools
+
+**Important**: The MCP server provides no tools by default. To use MCP functionality, you must either:
+
+1. **Load the example tools**:
+   ```elisp
+   (load-file "examples/mcp-tools.el")
+   ```
+
+2. **Define your own tools** using the `claude-code-defmcp` macro (see below)
+
+### Creating Custom Tools
+
+Use the `claude-code-defmcp` macro to create your own MCP tools:
+
+```elisp
+(claude-code-defmcp my-custom-tool (param1 param2)
+  "Description of what this tool does."
+  :mcp-description "Brief description for MCP clients"
+  :mcp-schema '((param1 . ("string" "Description of param1"))
+                (param2 . ("number" "Description of param2")))
+  ;; Your function body here
+  (format "Processed %s and %s" param1 param2))
+```
+
+### Example Tools
+
+The package includes comprehensive example tools in `examples/mcp-tools.el` that you must explicitly load:
+
+- **Variable Access**: Get Emacs variable values
+- **File Operations**: Open files, check parentheses balance
+- **Emacs Introspection**: Search symbols, get documentation, describe functions
+- **Buffer Management**: Get buffer info, view contents
+- **Org-Mode Integration**: Access agenda, manage TODOs, schedule items
+
+**📖 For detailed documentation of all 22 available MCP tools with parameters, usage examples, and return values, see [CLAUDE.md](CLAUDE.md#available-tools-from-examplesmcp-toolsel)**
+
+### Uninstalling
+
+To remove the MCP server from Claude Code CLI:
+
+```bash
+claude mcp remove emacs
+```
 
 ## Tips and Tricks
 

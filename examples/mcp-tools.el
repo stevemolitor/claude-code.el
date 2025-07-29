@@ -21,13 +21,13 @@
 
 ;;; Code:
 
-;;;; Basic Examples
+;;;; Basic Utilities
 
-(claude-code-defmcp mcp-hello-world (&optional name)
-  "Say hello to someone."
+(claude-code-defmcp mcp-hello-world (name)
+  "Greet someone with a friendly hello message."
   :mcp-description "Greet someone with a friendly hello message"
   :mcp-schema '((name . ("string" "Name of person to greet")))
-  (format "Hello, %s! 👋" (or name "World")))
+  (format "Hello, %s! 👋" name))
 
 ;;;; Emacs Variable Access
 
@@ -59,6 +59,257 @@
           (with-current-buffer "*Org Agenda*"
             (write-file filename))))
       (format "Agenda content written to %s" filename))))
+
+(claude-code-defmcp mcp-org-agenda-todo (target-type target &optional new-state agenda-type org-file)
+  "Change the state of an agenda item (e.g., TODO -> DONE)."
+  :mcp-description "Change the state of an agenda item (e.g., TODO -> DONE)"
+  :mcp-schema '((target-type . ("string" "Either 'agenda_line' or 'org_heading'"))
+                (target . ("string" "Either agenda line number (1-based) or heading text"))
+                (new-state . ("string" "New TODO state (optional, cycles if not provided)"))
+                (agenda-type . ("string" "Agenda type to work with (default 'a')"))
+                (org-file . ("string" "Specific org file path (required for org_heading type)")))
+  (unless agenda-type (setq agenda-type "a"))
+  (cond
+   ((string= target-type "agenda_line")
+    (save-window-excursion
+      (let ((org-agenda-window-setup 'current-window))
+        (org-agenda nil agenda-type)
+        (with-current-buffer "*Org Agenda*"
+          (goto-char (point-min))
+          (forward-line (1- (string-to-number target)))
+          (if (org-agenda-check-type nil 'agenda 'todo 'tags 'search)
+              (progn
+                (if new-state
+                    (org-agenda-todo new-state)
+                  (org-agenda-todo))
+                (format "Successfully changed state of item at line %s" target))
+            (error "No valid agenda item found at line %s" target))))))
+   ((string= target-type "org_heading")
+    (unless org-file
+      (error "org_file parameter is required when target_type is 'org_heading'"))
+    (save-window-excursion
+      (find-file org-file)
+      (goto-char (point-min))
+      (if (search-forward target nil t)
+          (progn
+            (org-back-to-heading t)
+            (if new-state
+                (org-todo new-state)
+              (org-todo))
+            (save-buffer)
+            (format "Successfully changed state of heading '%s' in %s" target org-file))
+        (error "Heading '%s' not found in %s" target org-file))))
+   (t (error "target_type must be either 'agenda_line' or 'org_heading'"))))
+
+(claude-code-defmcp mcp-org-schedule-todo (org-file heading-text schedule-date &optional remove-schedule)
+  "Schedule a TODO item by adding SCHEDULED property."
+  :mcp-description "Schedule a TODO item by adding SCHEDULED property"
+  :mcp-schema '((org-file . ("string" "Path to the org file containing the heading"))
+                (heading-text . ("string" "Text of the heading to schedule"))
+                (schedule-date . ("string" "Date/time to schedule (e.g., '2025-01-15', 'today', '+1d')"))
+                (remove-schedule . ("boolean" "Remove existing schedule instead of setting one")))
+  (save-window-excursion
+    (find-file org-file)
+    (goto-char (point-min))
+    (if (search-forward heading-text nil t)
+        (progn
+          (org-back-to-heading t)
+          (if remove-schedule
+              (org-schedule '(4))
+            (org-schedule nil schedule-date))
+          (save-buffer)
+          (if remove-schedule
+              (format "Successfully removed schedule from heading '%s' in %s" heading-text org-file)
+            (format "Successfully scheduled heading '%s' for %s in %s" heading-text schedule-date org-file)))
+      (error "Heading '%s' not found in %s" heading-text org-file))))
+
+(claude-code-defmcp mcp-org-archive-todo (org-file heading-text &optional archive-location)
+  "Archive a TODO item by moving it to the archive file."
+  :mcp-description "Archive a TODO item by moving it to the archive file"
+  :mcp-schema '((org-file . ("string" "Path to the org file containing the heading"))
+                (heading-text . ("string" "Text of the heading to archive"))
+                (archive-location . ("string" "Archive location (optional)")))
+  (save-window-excursion
+    (find-file org-file)
+    (goto-char (point-min))
+    (if (search-forward heading-text nil t)
+        (progn
+          (org-back-to-heading t)
+          (if (and archive-location (not (string-empty-p archive-location)))
+              (let ((org-archive-location archive-location))
+                (org-archive-subtree))
+            (org-archive-subtree))
+          (save-buffer)
+          (if (and archive-location (not (string-empty-p archive-location)))
+              (format "Successfully archived heading '%s' from %s to %s" heading-text org-file archive-location)
+            (format "Successfully archived heading '%s' from %s to default archive" heading-text org-file)))
+      (error "Heading '%s' not found in %s" heading-text org-file))))
+
+(claude-code-defmcp mcp-org-capture (&optional template-key content immediate-finish)
+  "Add a new agenda item via org-capture mechanism."
+  :mcp-description "Add a new agenda item via org-capture mechanism"
+  :mcp-schema '((template-key . ("string" "Capture template key (optional)"))
+                (content . ("string" "Content to capture (optional)"))
+                (immediate-finish . ("boolean" "Whether to immediately finish capture")))
+  (unless immediate-finish (setq immediate-finish t))
+  (cond
+   ((not template-key)
+    ;; Show available capture templates
+    (let ((templates org-capture-templates)
+          (result "=== AVAILABLE CAPTURE TEMPLATES ===\n"))
+      (if templates
+          (dolist (template templates)
+            (setq result (concat result 
+                               (format "%s: %s\n" 
+                                     (car template) 
+                                     (cadr template)))))
+        (setq result (concat result "No capture templates configured")))
+      result))
+   (content
+    ;; Capture with provided content
+    (condition-case err
+        (let ((org-capture-entry (assoc template-key org-capture-templates)))
+          (if org-capture-entry
+              (progn
+                (org-capture-string content template-key)
+                (when immediate-finish
+                  (org-capture-finalize))
+                (format "Successfully captured item using template '%s': %s" template-key content))
+            (error "Capture template '%s' not found" template-key)))
+      (error (format "Capture failed: %s" (error-message-string err)))))
+   (t
+    ;; Interactive capture
+    (condition-case err
+        (let ((org-capture-entry (assoc template-key org-capture-templates)))
+          (if org-capture-entry
+              (progn
+                (org-capture nil template-key)
+                (format "Interactive capture started with template '%s'. Edit and press C-c C-c to finish." template-key))
+            (error "Capture template '%s' not found" template-key)))
+      (error (format "Capture failed: %s" (error-message-string err)))))))
+
+(claude-code-defmcp mcp-org-get-all-todos (&optional include-done org-files)
+  "Get all TODO items from org files, including unscheduled ones."
+  :mcp-description "Get all TODO items from org files, including unscheduled ones"
+  :mcp-schema '((include-done . ("boolean" "Include DONE items in results"))
+                (org-files . ("array" "Specific org files to search (defaults to org-agenda-files)")))
+  (unless (file-directory-p "/tmp/ClaudeWorkingFolder")
+    (make-directory "/tmp/ClaudeWorkingFolder" t))
+  
+  (let ((filename "/tmp/ClaudeWorkingFolder/all_todos.txt")
+        (result "=== ALL TODO ITEMS ===\n")
+        (files (or org-files (org-agenda-files)))
+        (todo-keywords (if include-done
+                          '("TODO" "NEXT" "STARTED" "WAITING" "DONE" "CANCELLED")
+                        '("TODO" "NEXT" "STARTED" "WAITING"))))
+    (dolist (file files)
+      (when (file-exists-p file)
+        (with-temp-buffer
+          (insert-file-contents file)
+          (org-mode)
+          (goto-char (point-min))
+          (setq result (concat result (format "\n=== FILE: %s ===\n" file)))
+          (let ((keyword-regex (concat "^\\*+ \\(" (mapconcat 'identity todo-keywords "\\|") "\\) ")))
+            (while (re-search-forward keyword-regex nil t)
+              (let* ((heading-start (line-beginning-position))
+                     (heading-end (line-end-position))
+                     (heading-text (buffer-substring heading-start heading-end))
+                     (scheduled (org-entry-get (point) "SCHEDULED"))
+                     (deadline (org-entry-get (point) "DEADLINE"))
+                     (line-num (line-number-at-pos)))
+                (setq result (concat result
+                                   (format "Line %d: %s\n" line-num heading-text)
+                                   (if scheduled (format "  SCHEDULED: %s\n" scheduled) "")
+                                   (if deadline (format "  DEADLINE: %s\n" deadline) "")
+                                   "\n"))))))))
+    (write-region result nil filename)
+    (format "All TODO items written to %s" filename)))
+
+(claude-code-defmcp mcp-org-agenda-goto (target-type target &optional agenda-type context-lines)
+  "Go to the source location of an agenda item and return file path and content."
+  :mcp-description "Go to the source location of an agenda item and return file path and content"
+  :mcp-schema '((target-type . ("string" "Either 'agenda_line' or 'agenda_text'"))
+                (target . ("string" "Either agenda line number (1-based) or agenda item text"))
+                (agenda-type . ("string" "Agenda type to work with (default 'a')"))
+                (context-lines . ("number" "Number of lines before/after to show for context")))
+  (unless agenda-type (setq agenda-type "a"))
+  (unless context-lines (setq context-lines 5))
+  (unless (file-directory-p "/tmp/ClaudeWorkingFolder")
+    (make-directory "/tmp/ClaudeWorkingFolder" t))
+  
+  (let ((filename "/tmp/ClaudeWorkingFolder/agenda_goto_result.txt")
+        (result ""))
+    (save-window-excursion
+      (let ((org-agenda-window-setup 'current-window))
+        (org-agenda nil agenda-type)
+        (with-current-buffer "*Org Agenda*"
+          (goto-char (point-min))
+          (cond
+           ((string= target-type "agenda_line")
+            (forward-line (1- (string-to-number target)))
+            (condition-case err
+                (progn
+                  (org-agenda-goto)
+                  (let* ((file-name (buffer-file-name))
+                         (line-num (line-number-at-pos))
+                         (heading (org-get-heading t t t t))
+                         (start-line (max 1 (- line-num context-lines)))
+                         (end-line (+ line-num context-lines))
+                         (content ""))
+                    (setq result (concat result "=== AGENDA ITEM SOURCE ===\n"))
+                    (setq result (concat result (format "File: %s\n" file-name)))
+                    (setq result (concat result (format "Line: %d\n" line-num)))
+                    (setq result (concat result (format "Heading: %s\n\n" heading)))
+                    (setq result (concat result (format "=== CONTEXT (lines %d-%d) ===\n" start-line end-line)))
+                    (save-excursion
+                      (goto-char (point-min))
+                      (forward-line (1- start-line))
+                      (let ((current-line start-line))
+                        (while (and (<= current-line end-line) (not (eobp)))
+                          (setq content (concat content
+                                              (format "%4d%s %s\n" 
+                                                    current-line
+                                                    (if (= current-line line-num) "→" " ")
+                                                    (buffer-substring-no-properties (line-beginning-position) (line-end-position)))))
+                          (forward-line 1)
+                          (setq current-line (1+ current-line)))))
+                    (setq result (concat result content))))
+              (error (setq result (format "Error going to agenda item at line %s: %s\n" target (error-message-string err))))))
+           ((string= target-type "agenda_text")
+            (if (search-forward target nil t)
+                (condition-case err
+                    (progn
+                      (beginning-of-line)
+                      (org-agenda-goto)
+                      (let* ((file-name (buffer-file-name))
+                             (line-num (line-number-at-pos))
+                             (heading (org-get-heading t t t t))
+                             (start-line (max 1 (- line-num context-lines)))
+                             (end-line (+ line-num context-lines))
+                             (content ""))
+                        (setq result (concat result "=== AGENDA ITEM SOURCE ===\n"))
+                        (setq result (concat result (format "File: %s\n" file-name)))
+                        (setq result (concat result (format "Line: %d\n" line-num)))
+                        (setq result (concat result (format "Heading: %s\n\n" heading)))
+                        (setq result (concat result (format "=== CONTEXT (lines %d-%d) ===\n" start-line end-line)))
+                        (save-excursion
+                          (goto-char (point-min))
+                          (forward-line (1- start-line))
+                          (let ((current-line start-line))
+                            (while (and (<= current-line end-line) (not (eobp)))
+                              (setq content (concat content
+                                                  (format "%4d%s %s\n" 
+                                                        current-line
+                                                        (if (= current-line line-num) "→" " ")
+                                                        (buffer-substring-no-properties (line-beginning-position) (line-end-position)))))
+                              (forward-line 1)
+                              (setq current-line (1+ current-line)))))
+                        (setq result (concat result content))))
+                  (error (setq result (format "Error going to agenda item containing '%s': %s\n" target (error-message-string err)))))
+              (setq result (format "Agenda item containing '%s' not found\n" target))))
+           (t (error "target_type must be either 'agenda_line' or 'agenda_text'"))))))
+    (write-region result nil filename)
+    (format "Agenda goto result written to %s:\n%s" filename result)))
 
 ;;;; File Operations
 
@@ -161,6 +412,62 @@
             (setq desc (concat desc "Symbol not found as function or variable")))))
         (push desc results)))
     (mapconcat 'identity (reverse results) "\n\n")))
+
+(claude-code-defmcp mcp-emacs-keymap-analysis (buffer-names &optional include-global)
+  "Analyze keymaps for buffer contexts and write to files."
+  :mcp-description "Analyze keymaps for one or more buffer contexts"
+  :mcp-schema '((buffer-names . ("array" "List of buffer names to analyze"))
+                (include-global . ("boolean" "Include global keymap analysis")))
+  (unless (file-directory-p "/tmp/ClaudeWorkingFolder")
+    (make-directory "/tmp/ClaudeWorkingFolder" t))
+  
+  (let ((successful-files '())
+        (with-global (or include-global nil)))
+    (dolist (buffer-name buffer-names)
+      (condition-case err
+          (with-current-buffer buffer-name
+            (let ((analysis "")
+                  (sanitized-name (replace-regexp-in-string "[^a-zA-Z0-9-_]" "_" buffer-name))
+                  (filename (format "/tmp/ClaudeWorkingFolder/keymap_analysis_%s.txt" 
+                                   (replace-regexp-in-string "[^a-zA-Z0-9-_]" "_" buffer-name)))
+                  (major-keymap (current-local-map))
+                  (minor-keymaps (current-minor-mode-maps)))
+              
+              (setq analysis (concat analysis (format "=== BUFFER: %s ===\n" (buffer-name))))
+              (setq analysis (concat analysis (format "Major mode: %s\n\n" (symbol-name major-mode))))
+              
+              ;; Major mode keymap
+              (when major-keymap
+                (setq analysis (concat analysis "=== MAJOR MODE KEYMAP ===\n"))
+                (setq analysis (concat analysis (save-window-excursion 
+                                                (substitute-command-keys "\\{major-keymap}")) "\n\n")))
+              
+              ;; Minor mode keymaps
+              (when minor-keymaps
+                (setq analysis (concat analysis "=== MINOR MODE KEYMAPS ===\n"))
+                (let ((keymap-index 0))
+                  (dolist (keymap minor-keymaps)
+                    (when keymap
+                      (setq keymap-index (1+ keymap-index))
+                      (setq analysis (concat analysis (format "Minor mode keymap %d:\n" keymap-index)))
+                      (condition-case err
+                          (let ((keymap-desc (substitute-command-keys (format "\\{%s}" keymap))))
+                            (setq analysis (concat analysis keymap-desc "\n\n")))
+                        (error 
+                         (setq analysis (concat analysis "Error describing keymap: " (error-message-string err) "\n\n"))))))))
+              
+              ;; Global keymap (optional)
+              (when with-global
+                (setq analysis (concat analysis "=== GLOBAL KEYMAP ===\n"))
+                (setq analysis (concat analysis (save-window-excursion 
+                                                (substitute-command-keys "\\{global-map}")) "\n\n")))
+              
+              (write-region analysis nil filename)
+              (push filename successful-files)))
+        (error
+         (message "Error processing buffer '%s': %s" buffer-name (error-message-string err)))))
+    
+    (format "Keymap analysis written to files: %s" (mapconcat 'identity (reverse successful-files) ", "))))
 
 ;;;; Buffer Operations
 
@@ -307,13 +614,211 @@
               (+workspace-switch current-workspace t))
           (error (setq result (format "Error accessing workspaces: %s\n" (error-message-string err)))))))
      (t
-      (setq result "No supported workspace system found - showing current buffer list\n")
+      (setq result "No Doom workspace system found - showing current buffer list\n")
       (let ((buffers (mapcar 'buffer-name (buffer-list))))
         (dolist (buf buffers)
           (setq result (concat result buf "\n"))))))
     
     (write-region result nil filename)
     (format "Workspace buffers written to %s" filename)))
+
+(claude-code-defmcp mcp-rename-workspace (workspace-identifier new-name)
+  "Rename a workspace by its slot number or current name."
+  :mcp-description "Rename a workspace by its slot number or current name"
+  :mcp-schema '((workspace-identifier . ("string" "Current workspace name or slot number to rename"))
+                (new-name . ("string" "New name for the workspace")))
+  (if (and (fboundp '+workspace/rename) (fboundp '+workspace-get))
+      (condition-case err
+          (let* ((current-workspace (+workspace-current))
+                 (workspace-names (+workspace-list-names))
+                 (target-workspace (or 
+                                  ;; Try to find by name first
+                                  (cl-find workspace-identifier workspace-names :test 'string=)
+                                  ;; Try to find by number
+                                  (when (string-match-p "^[0-9]+$" workspace-identifier)
+                                    (let ((index (string-to-number workspace-identifier)))
+                                      (when (and (>= index 0) (< index (length workspace-names)))
+                                        (nth index workspace-names)))))))
+            (if target-workspace
+                (let ((current-workspace (+workspace-current-name))
+                      (old-name nil))
+                  (condition-case rename-err
+                      (progn
+                        ;; Switch to target workspace
+                        (+workspace-switch target-workspace t)
+                        ;; Rename it (this operates on current workspace)
+                        (setq old-name (+workspace-rename (+workspace-current-name) new-name))
+                        ;; Switch back to original workspace
+                        (unless (string= current-workspace target-workspace)
+                          (+workspace-switch current-workspace t))
+                        (if old-name
+                            (format "Successfully renamed Doom workspace '%s' to '%s'" old-name new-name)
+                          (format "Failed to rename Doom workspace '%s'" workspace-identifier)))
+                    (error 
+                     ;; Try to switch back on error
+                     (ignore-errors (+workspace-switch current-workspace t))
+                     (format "Error during rename: %s" (error-message-string rename-err)))))
+              (format "Doom workspace '%s' not found. Available: %s" workspace-identifier (mapconcat 'identity workspace-names ", "))))
+        (error (format "Error renaming Doom workspace: %s" (error-message-string err))))
+    "Doom workspace system not available"))
+
+(claude-code-defmcp mcp-create-workspace (workspace-name)
+  "Create a new workspace with a given name."
+  :mcp-description "Create a new workspace with a given name"
+  :mcp-schema '((workspace-name . ("string" "Name for the new workspace")))
+  (if (fboundp '+workspace-new)
+      (condition-case err
+          (progn
+            (+workspace-new workspace-name)
+            (format "Successfully created Doom workspace '%s'" workspace-name))
+        (error (format "Error creating Doom workspace: %s" (error-message-string err))))
+    "Doom workspace system not available"))
+
+(claude-code-defmcp mcp-delete-workspace (workspace-identifier)
+  "Delete a workspace by name or identifier."
+  :mcp-description "Delete a workspace by name or identifier"
+  :mcp-schema '((workspace-identifier . ("string" "Workspace name or identifier to delete")))
+  (if (and (fboundp 'persp-kill) (fboundp '+workspace-list-names))
+      (condition-case err
+          (let* ((workspace-names (+workspace-list-names))
+                 (target-workspace (or 
+                                  (cl-find workspace-identifier workspace-names :test 'string=)
+                                  (when (string-match-p "^[0-9]+$" workspace-identifier)
+                                    (let ((index (string-to-number workspace-identifier)))
+                                      (when (and (>= index 0) (< index (length workspace-names)))
+                                        (nth index workspace-names)))))))
+            (if target-workspace
+                ;; Check for active sessions and terminals before deleting
+                (let* ((persp-obj (persp-get-by-name target-workspace))
+                       (workspace-buffers (when persp-obj (mapcar 'buffer-name (persp-buffers persp-obj))))
+                       (claude-buffers (cl-remove-if-not 
+                                       (lambda (buf-name) 
+                                         (string-match-p "^\\*claude:.*:\\*$" buf-name))
+                                       workspace-buffers))
+                       (terminal-buffers (cl-remove-if-not 
+                                         (lambda (buf-name) 
+                                           (or (string-match-p "^\\*vterm\\*" buf-name)
+                                               (string-match-p "^\\*eat\\*" buf-name)
+                                               (string-match-p "^\\*eshell\\*" buf-name)
+                                               (string-match-p "^\\*shell\\*" buf-name)
+                                               (string-match-p "^\\*term\\*" buf-name)
+                                               (string-match-p "^\\*ansi-term\\*" buf-name)
+                                               (string-match-p "^\\*mistty\\*" buf-name)))
+                                         workspace-buffers))
+                       (protected-buffers (append claude-buffers terminal-buffers))
+                       (workspace-has-protected (> (length protected-buffers) 0)))
+                  (if workspace-has-protected
+                      (format "Cannot delete workspace '%s' - contains active sessions/terminals: %s. Please close these or move them to another workspace first."
+                             target-workspace
+                             (mapconcat 'identity protected-buffers ", "))
+                    (progn
+                      (persp-kill target-workspace)
+                      (format "Successfully deleted Doom workspace '%s'" target-workspace))))
+              (format "Doom workspace '%s' not found. Available: %s" workspace-identifier (mapconcat 'identity workspace-names ", "))))
+        (error (format "Error deleting Doom workspace: %s" (error-message-string err))))
+    "Doom workspace system not available"))
+
+(claude-code-defmcp mcp-move-protected-buffers-to-workspace (source-workspace target-workspace)
+  "Move all protected buffers from one workspace to another."
+  :mcp-description "Move all protected buffers (Claude Code sessions, terminals, etc.) from one workspace to another"
+  :mcp-schema '((source-workspace . ("string" "Workspace containing protected buffers to move"))
+                (target-workspace . ("string" "Workspace to move protected buffers to")))
+  (if (and (fboundp '+workspace-list-names) (fboundp '+workspace-buffer-list))
+      (condition-case err
+          (let* ((workspace-names (+workspace-list-names)))
+            (if (and (cl-find source-workspace workspace-names :test 'string=)
+                    (cl-find target-workspace workspace-names :test 'string=))
+                (let* ((source-buffers (mapcar 'buffer-name (+workspace-buffer-list source-workspace)))
+                       (claude-buffers (cl-remove-if-not 
+                                       (lambda (buf-name) 
+                                         (string-match-p "^\\*claude:.*:\\*$" buf-name))
+                                       source-buffers))
+                       (terminal-buffers (cl-remove-if-not 
+                                         (lambda (buf-name) 
+                                           (or (string-match-p "^\\*vterm\\*" buf-name)
+                                               (string-match-p "^\\*eat\\*" buf-name)
+                                               (string-match-p "^\\*eshell\\*" buf-name)
+                                               (string-match-p "^\\*shell\\*" buf-name)
+                                               (string-match-p "^\\*term\\*" buf-name)
+                                               (string-match-p "^\\*ansi-term\\*" buf-name)
+                                               (string-match-p "^\\*mistty\\*" buf-name)))
+                                         source-buffers))
+                       (protected-buffers (append claude-buffers terminal-buffers))
+                       (current-workspace (+workspace-current-name)))
+                  (if protected-buffers
+                      (progn
+                        ;; Switch to target workspace and add buffers
+                        (+workspace-switch target-workspace t)
+                        (dolist (buf-name protected-buffers)
+                          (when (get-buffer buf-name)
+                            (persp-add-buffer (get-buffer buf-name))))
+                        ;; Switch to source workspace and remove buffers
+                        (+workspace-switch source-workspace t)
+                        (dolist (buf-name protected-buffers)
+                          (when (get-buffer buf-name)
+                            (persp-remove-buffer (get-buffer buf-name))))
+                        ;; Switch back to original workspace
+                        (unless (or (string= current-workspace source-workspace)
+                                   (string= current-workspace target-workspace))
+                          (+workspace-switch current-workspace t))
+                        (format "Successfully moved %d protected buffers from '%s' to '%s': %s"
+                               (length protected-buffers)
+                               source-workspace
+                               target-workspace
+                               (mapconcat 'identity protected-buffers ", ")))
+                    (format "No protected buffers found in workspace '%s'" source-workspace)))
+              (format "Workspace not found. Source: %s, Target: %s. Available: %s" 
+                     source-workspace 
+                     target-workspace
+                     (mapconcat 'identity workspace-names ", "))))
+        (error (format "Error moving protected buffers: %s" (error-message-string err))))
+    "Doom workspace system not available"))
+
+(claude-code-defmcp mcp-setup-workspace-layout (workspace-name layout)
+  "Set up window layout for a workspace without switching away from current workspace."
+  :mcp-description "Set up window layout for a workspace without switching away from current workspace"
+  :mcp-schema '((workspace-name . ("string" "Name of the workspace to configure"))
+                (layout . ("object" "Layout configuration with primary_buffer, secondary_buffer, split_direction")))
+  (condition-case err
+      (let ((current-workspace (+workspace-current-name))
+            (target-workspace workspace-name)
+            (primary-buf (cdr (assoc 'primary_buffer layout)))
+            (secondary-buf (cdr (assoc 'secondary_buffer layout)))
+            (split-dir (or (cdr (assoc 'split_direction layout)) "horizontal")))
+        ;; Save current workspace state
+        (if (cl-find target-workspace (+workspace-list-names) :test 'string=)
+            (progn
+              ;; Switch to target workspace temporarily
+              (+workspace-switch target-workspace t)
+              
+              ;; Set up primary buffer
+              (if (get-buffer primary-buf)
+                  (switch-to-buffer primary-buf)
+                (error "Primary buffer '%s' not found" primary-buf))
+              
+              ;; Set up secondary buffer if specified
+              (when (and secondary-buf (get-buffer secondary-buf))
+                (if (string= split-dir "vertical")
+                    (split-window-below)
+                  (split-window-right))
+                (other-window 1)
+                (switch-to-buffer secondary-buf)
+                (other-window 1))
+              
+              ;; Switch back to original workspace
+              (unless (string= current-workspace target-workspace)
+                (+workspace-switch current-workspace t))
+              
+              (format "Successfully configured workspace '%s' with layout: %s%s" 
+                     target-workspace 
+                     primary-buf
+                     (if secondary-buf 
+                         (format " + %s (%s split)" secondary-buf split-dir)
+                       "")))
+          (format "Workspace '%s' not found. Available: %s" 
+                 target-workspace 
+                 (mapconcat 'identity (+workspace-list-names) ", "))))
+    (error (format "Error setting up workspace layout: %s" (error-message-string err)))))
 
 (claude-code-defmcp mcp-view-buffer (buffer-names)
   "Get buffer contents and write each to separate files."
