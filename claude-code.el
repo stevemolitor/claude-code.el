@@ -16,6 +16,7 @@
 (require 'transient)
 (require 'project)
 (require 'cl-lib)
+(require 'json)
 
 ;;;; Customization options
 (defgroup claude-code nil
@@ -1213,6 +1214,11 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
 
       ;; run start hooks
       (run-hooks 'claude-code-start-hook)
+      
+      ;; Start MCP server if enabled
+      (when claude-code-mcp-enabled
+        (claude-code--start-mcp-server)
+        (claude-code--start-mcp-bridge-process))
 
       ;; Disable vertical scroll bar in claude buffer
       (setq-local vertical-scroll-bar nil)
@@ -1836,6 +1842,395 @@ enter Claude commands."
    (if (not (claude-code--term-in-read-only-p claude-code-terminal-backend))
        (claude-code-read-only-mode)
      (claude-code-exit-read-only-mode))))
+
+;;;; MCP Integration
+(defcustom claude-code-mcp-enabled t
+  "Whether to enable MCP (Model Context Protocol) integration."
+  :type 'boolean
+  :group 'claude-code)
+
+(defcustom claude-code-mcp-port 8765
+  "Port for the MCP TCP server."
+  :type 'integer
+  :group 'claude-code)
+
+(defvar claude-code-mcp-server-process nil
+  "Process for the MCP TCP server.")
+
+(defvar claude-code-mcp-bridge-process nil
+  "Process for the MCP bridge server.")
+
+(defvar claude-code-mcp-client-connections nil
+  "List of active MCP client connections.")
+
+(defvar claude-code-mcp-bridge-restart-count 0
+  "Number of times the MCP bridge has been restarted.")
+
+(defvar claude-code-mcp-bridge-last-restart-time nil
+  "Time of the last MCP bridge restart attempt.")
+
+(defvar claude-code-mcp-bridge-max-restart-attempts 5
+  "Maximum number of restart attempts before giving up.")
+
+(defvar claude-code-mcp-bridge-restart-interval 10
+  "Minimum seconds between restart attempts.")
+
+(defmacro claude-code-defmcp (name args docstring &rest body-and-properties)
+  "Define an MCP tool function with embedded properties.
+NAME is the function name, ARGS is the argument list, DOCSTRING is the documentation.
+The remaining BODY-AND-PROPERTIES can contain :mcp-description, :mcp-schema, and function body."
+  (let ((description nil)
+        (schema nil)
+        (body '()))
+    
+    ;; Parse body and properties
+    (while body-and-properties
+      (let ((item (car body-and-properties)))
+        (cond
+         ((eq item :mcp-description)
+          (setq description (cadr body-and-properties))
+          (setq body-and-properties (cddr body-and-properties)))
+         ((eq item :mcp-schema)
+          (setq schema (cadr body-and-properties))
+          (setq body-and-properties (cddr body-and-properties)))
+         (t
+          (push item body)
+          (setq body-and-properties (cdr body-and-properties))))))
+    
+    (setq body (nreverse body))
+    
+    `(progn
+       (defun ,name ,args
+         ,docstring
+         ,@body)
+       (put ',name :mcp-tool t)
+       ,(when description
+          `(put ',name :mcp-description ,description))
+       ,(when schema
+          `(put ',name :mcp-schema ',schema))
+       ',name)))
+
+(defun claude-code--start-mcp-server ()
+  "Start the MCP TCP server."
+  (when (and claude-code-mcp-enabled
+             (not (and claude-code-mcp-server-process
+                       (process-live-p claude-code-mcp-server-process))))
+    (setq claude-code-mcp-server-process
+          (make-network-process
+           :name "claude-code-mcp"
+           :service claude-code-mcp-port
+           :server t
+           :family 'ipv4
+           :host 'local
+           :filter 'claude-code--mcp-filter
+           :sentinel 'claude-code--mcp-sentinel))
+    (message "Claude Code MCP server started on port %d" claude-code-mcp-port)))
+
+(defun claude-code--mcp-bridge-running-p ()
+  "Check if an MCP bridge process is already running."
+  (and claude-code-mcp-bridge-process
+       (process-live-p claude-code-mcp-bridge-process)))
+
+(defun claude-code--start-mcp-bridge-process ()
+  "Start the TypeScript MCP bridge server process."
+  (when (and claude-code-mcp-enabled
+             (not (claude-code--mcp-bridge-running-p)))
+    (let* ((package-dir (file-name-directory (or load-file-name 
+                                                 (buffer-file-name)
+                                                 default-directory)))
+           (mcp-server-path (expand-file-name "mcp-server/dist/index.js" package-dir)))
+      (if (file-exists-p mcp-server-path)
+          (progn
+            (message "Starting MCP bridge process...")
+            ;; Clear any stale process reference
+            (setq claude-code-mcp-bridge-process nil)
+            ;; Wait briefly to ensure any previous process has fully terminated
+            (sit-for 0.5)
+            (setq claude-code-mcp-bridge-process
+                  (start-process "claude-code-mcp-bridge"
+                                 "*claude-code-mcp-bridge*"
+                                 "node"
+                                 mcp-server-path))
+            ;; Add sentinel to monitor process state
+            (when claude-code-mcp-bridge-process
+              (set-process-sentinel claude-code-mcp-bridge-process 
+                                    'claude-code--mcp-bridge-sentinel)
+              (message "MCP bridge process started (PID: %s)" 
+                       (process-id claude-code-mcp-bridge-process))))
+        (message "MCP server script not found at: %s" mcp-server-path)))))
+
+(defun claude-code--stop-mcp-server ()
+  "Stop the MCP TCP server."
+  (when (and claude-code-mcp-server-process
+             (process-live-p claude-code-mcp-server-process))
+    (delete-process claude-code-mcp-server-process)
+    (setq claude-code-mcp-server-process nil))
+  
+  (dolist (conn claude-code-mcp-client-connections)
+    (when (process-live-p conn)
+      (delete-process conn)))
+  (setq claude-code-mcp-client-connections nil))
+
+(defun claude-code--stop-mcp-bridge-process ()
+  "Stop the TypeScript MCP bridge server process."
+  (when (and claude-code-mcp-bridge-process
+             (process-live-p claude-code-mcp-bridge-process))
+    (delete-process claude-code-mcp-bridge-process)
+    (setq claude-code-mcp-bridge-process nil)))
+
+(defun claude-code--discover-mcp-tools ()
+  "Discover all available MCP tools."
+  (let ((tools '()))
+    (mapatoms
+     (lambda (symbol)
+       (when (and (fboundp symbol)
+                  (get symbol :mcp-tool))
+         (let* ((name (symbol-name symbol))
+                (description (or (get symbol :mcp-description) 
+                                (format "MCP tool: %s" name)))
+                (schema (or (get symbol :mcp-schema) '())))
+           (push `((name . ,name)
+                   (description . ,description)
+                   (inputSchema . ,(claude-code--build-json-schema schema)))
+                 tools)))))
+    tools))
+
+(defun claude-code--build-json-schema (schema)
+  "Build JSON Schema from simplified schema format."
+  ;; Handle quoted schemas
+  (when (and (consp schema) (eq (car schema) 'quote))
+    (setq schema (cadr schema)))
+  
+  (cond
+   ;; Empty or nil schema - no parameters
+   ((or (null schema) (equal schema '()))
+    `((type . "object") 
+      (properties . ,(make-hash-table :test 'equal))
+      (required . ,(vector))
+      (additionalProperties . :json-false)))
+   
+   ;; Simplified format - list of (name type description) tuples
+   ((listp schema)
+    (let ((properties (make-hash-table :test 'equal))
+          (required '()))
+      (dolist (item schema)
+        (cond
+         ;; (name "type" "description") list format  
+         ((and (listp item) (>= (length item) 2))
+          (let ((param-name (symbol-name (car item)))
+                (param-type (cadr item))
+                (param-desc (caddr item)))
+            (push param-name required)
+            (if param-desc
+                (puthash param-name `((type . ,param-type)
+                                     (description . ,param-desc)) properties)
+              (puthash param-name `((type . ,param-type)) properties))))))
+      
+      `((type . "object")
+        (properties . ,properties)
+        (required . ,(vconcat (nreverse required)))
+        (additionalProperties . :json-false))))
+   
+   ;; Fallback
+   (t `((type . "object")
+        (properties . ,(make-hash-table :test 'equal))
+        (required . ,(vector))
+        (additionalProperties . :json-false)))))
+
+(defun claude-code--execute-mcp-tool (tool-name params)
+  "Execute an MCP tool with given parameters."
+  (let ((symbol (intern tool-name)))
+    (if (and (fboundp symbol) (get symbol :mcp-tool))
+        (condition-case err
+            (let* ((func-args (help-function-arglist symbol))
+                   (ordered-params (claude-code--map-params-to-args params func-args)))
+              (format "%s" (apply symbol ordered-params)))
+          (error (format "Error executing %s: %s" tool-name (error-message-string err))))
+      (format "Tool not found: %s" tool-name))))
+
+(defun claude-code--map-params-to-args (params-alist func-args)
+  "Map parameters from alist to function arguments in correct order."
+  (let ((mapped-args '()))
+    (dolist (arg-spec func-args)
+      (unless (memq arg-spec '(&optional &rest &key))
+        (let* ((arg-name (if (listp arg-spec) (car arg-spec) arg-spec))
+               (arg-key (symbol-name arg-name))
+               (param-value (alist-get (intern arg-key) params-alist)))
+          ;; Convert JSON arrays (vectors) to Lisp lists
+          (when (vectorp param-value)
+            (setq param-value (append param-value nil)))
+          (push param-value mapped-args))))
+    (nreverse mapped-args)))
+
+(defun claude-code--mcp-filter (proc string)
+  "Filter function for MCP TCP connections.
+PROC is the process and STRING is the received data."
+  (condition-case err
+      (let* ((request (json-parse-string string :object-type 'alist))
+             (method (alist-get 'method request))
+             (id (alist-get 'id request))
+             (params (alist-get 'params request))
+             response)
+        
+        (setq response
+              (cond
+               ((string= method "discover_tools")
+                `((jsonrpc . "2.0")
+                  (id . ,id)
+                  (result . ,(claude-code--discover-mcp-tools))))
+               
+               ((string= method "call_tool")
+                (let* ((tool-name (alist-get 'name params))
+                       (tool-params (alist-get 'arguments params))
+                       (result (claude-code--execute-mcp-tool tool-name tool-params)))
+                  `((jsonrpc . "2.0")
+                    (id . ,id)
+                    (result . ,result))))
+               
+               (t
+                `((jsonrpc . "2.0")
+                  (id . ,id)
+                  (error . ((code . -32601)
+                           (message . ,(format "Method not found: %s" method))))))))
+        
+        (process-send-string proc (concat (json-encode response) "\n")))
+    
+    (error
+     (let ((error-response `((jsonrpc . "2.0")
+                            (id . ,(or (ignore-errors (alist-get 'id (json-parse-string string :object-type 'alist))) 0))
+                            (error . ((code . -32603)
+                                     (message . ,(format "Internal error: %s" (error-message-string err))))))))
+       (process-send-string proc (concat (json-encode error-response) "\n"))))))
+
+(defun claude-code--mcp-sentinel (proc event)
+  "Sentinel function for MCP TCP connections.
+PROC is the process and EVENT is the event string."
+  (cond
+   ((string-match "open" event)
+    (push proc claude-code-mcp-client-connections)
+    (message "MCP client connected"))
+   ((string-match "closed\\|finished" event)
+    (setq claude-code-mcp-client-connections
+          (delq proc claude-code-mcp-client-connections))
+    (message "MCP client disconnected"))))
+
+(defun claude-code--mcp-bridge-sentinel (proc event)
+  "Sentinel function for MCP bridge process.
+PROC is the process and EVENT is the event string."
+  (cond
+   ((string-match "finished\\|exited" event)
+    (let ((exit-status (process-exit-status proc)))
+      (if (= exit-status 0)
+          (progn
+            (message "MCP bridge process exited normally")
+            ;; Reset restart count on clean exit
+            (setq claude-code-mcp-bridge-restart-count 0))
+        (message "MCP bridge process exited with status %d" exit-status)
+        (claude-code--mcp-bridge-handle-crash)))
+    (setq claude-code-mcp-bridge-process nil))
+   ((string-match "killed\\|terminated" event)
+    (message "MCP bridge process was killed")
+    (claude-code--mcp-bridge-handle-crash)
+    (setq claude-code-mcp-bridge-process nil))))
+
+(defun claude-code--mcp-bridge-handle-crash ()
+  "Handle MCP bridge process crash with backoff logic."
+  (let ((current-time (float-time)))
+    (setq claude-code-mcp-bridge-restart-count (1+ claude-code-mcp-bridge-restart-count))
+    
+    (if (> claude-code-mcp-bridge-restart-count claude-code-mcp-bridge-max-restart-attempts)
+        (message "MCP bridge crashed %d times, giving up. Use `M-x claude-code-restart-mcp-server` to try again."
+                 claude-code-mcp-bridge-restart-count)
+      
+      ;; Check if enough time has passed since last restart
+      (let ((time-since-last-restart 
+             (if claude-code-mcp-bridge-last-restart-time
+                 (- current-time claude-code-mcp-bridge-last-restart-time)
+               claude-code-mcp-bridge-restart-interval)))
+        
+        (if (>= time-since-last-restart claude-code-mcp-bridge-restart-interval)
+            (progn
+              (message "MCP bridge crashed (attempt %d/%d), restarting in background..."
+                       claude-code-mcp-bridge-restart-count 
+                       claude-code-mcp-bridge-max-restart-attempts)
+              (setq claude-code-mcp-bridge-last-restart-time current-time)
+              ;; Restart after a brief delay
+              (run-at-time 2 nil 'claude-code--start-mcp-bridge-process))
+          
+          (let ((wait-time (- claude-code-mcp-bridge-restart-interval time-since-last-restart)))
+            (message "MCP bridge crashed too soon, waiting %.1f seconds before restart..."
+                     wait-time)
+            (run-at-time wait-time nil 'claude-code--mcp-bridge-handle-crash)))))))
+
+;;;###autoload
+(defun claude-code-start-mcp-server ()
+  "Start the MCP server for Claude integration."
+  (interactive)
+  (claude-code--start-mcp-server)
+  (claude-code--start-mcp-bridge-process))
+
+;;;###autoload
+(defun claude-code-stop-mcp-server ()
+  "Stop the MCP server."
+  (interactive)
+  (claude-code--stop-mcp-server)
+  (claude-code--stop-mcp-bridge-process)
+  (message "Claude Code MCP server stopped"))
+
+;;;###autoload
+(defun claude-code-restart-mcp-server ()
+  "Restart the MCP server."
+  (interactive)
+  (claude-code-stop-mcp-server)
+  ;; Reset restart count when manually restarting
+  (setq claude-code-mcp-bridge-restart-count 0
+        claude-code-mcp-bridge-last-restart-time nil)
+  (sit-for 1)
+  (claude-code-start-mcp-server))
+
+;;;###autoload
+(defun claude-code-mcp-status ()
+  "Show the status of the MCP server."
+  (interactive)
+  (let ((tcp-status (if (and claude-code-mcp-server-process
+                             (process-live-p claude-code-mcp-server-process))
+                        "Running" "Stopped"))
+        (bridge-status (if (and claude-code-mcp-bridge-process
+                                (process-live-p claude-code-mcp-bridge-process))
+                           "Running" "Stopped"))
+        (connections (length claude-code-mcp-client-connections)))
+    (message "MCP TCP Server: %s, Bridge: %s, Connections: %d"
+             tcp-status bridge-status connections)))
+
+;;;###autoload
+(defun claude-code-install-mcp-server ()
+  "Install the Emacs MCP server in Claude Code CLI configuration."
+  (interactive)
+  (let* ((package-dir (file-name-directory (or load-file-name 
+                                               (buffer-file-name)
+                                               default-directory)))
+         (mcp-server-path (expand-file-name "mcp-server/dist/index.js" package-dir))
+         (server-name "emacs")
+         (install-command (format "claude mcp add %s node %s" server-name mcp-server-path)))
+    
+    (if (file-exists-p mcp-server-path)
+        (progn
+          (message "Installing Emacs MCP server...")
+          (message "Running: %s" install-command)
+          
+          (let ((result (shell-command install-command)))
+            (if (= result 0)
+                (progn
+                  (message "✅ Emacs MCP server installed successfully!")
+                  (message "🔄 Restart Claude Code CLI to use the new MCP tools")
+                  (message "📚 Load tools with: (load-file \"examples/mcp-tools.el\")")
+                  (when (y-or-n-p "Load example MCP tools now? ")
+                    (load-file (expand-file-name "examples/mcp-tools.el" package-dir))
+                    (message "📦 Example MCP tools loaded!")))
+              (message "❌ Failed to install MCP server. Exit code: %d" result))))
+      
+      (message "❌ MCP server not found at: %s" mcp-server-path)
+      (message "💡 Build it first with: cd mcp-server && npm install && npm run build"))))
 
 ;;;; Mode definition
 ;;;###autoload
