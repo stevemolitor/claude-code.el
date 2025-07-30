@@ -1903,8 +1903,8 @@ pattern from `claude-code-mcp-blocked-buffer-patterns'."
         (let ((name (buffer-name buffer))
               (file-path (buffer-file-name buffer)))
           (dolist (pattern claude-code-mcp-blocked-buffer-patterns)
-            (when (or (and name (string-match-p (regexp-quote pattern) name t))
-                      (and file-path (string-match-p (regexp-quote pattern) file-path t)))
+            (when (or (and name (string-match-p (regexp-quote pattern) name))
+                      (and file-path (string-match-p (regexp-quote pattern) file-path)))
               (setq blocked t))))))))
 
 (defun claude-code-mcp-file-access-allowed-p (file-path)

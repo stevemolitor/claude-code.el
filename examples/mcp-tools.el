@@ -58,54 +58,7 @@
                             (org-agenda nil type)
                             (with-current-buffer "*Org Agenda*"
                               (write-region (point-min) (point-max) filename)))
-                          (format "Agenda content written to %s" filename))))
-
-                    (claude-code-defmcp mcp-org-agenda-todo (target-type target &optional new-state agenda-type org-file)
-                                        "Change the state of an agenda item (e.g., TODO -> DONE)."
-                                        :mcp-description "Change the state of an agenda item (e.g., TODO -> DONE)"
-                                        :mcp-schema '((target-type . ("string" "Either 'agenda_line' or 'org_heading'"))
-                                                      (target . ("string" "Either agenda line number (1-based) or heading text"))
-                                                      (new-state . ("string" "New TODO state (optional, cycles if not provided)"))
-                                                      (agenda-type . ("string" "Agenda type to work with (default 'a')"))
-                                                      (org-file . ("string" "Specific org file path (required for org_heading type)")))
-                                        (unless agenda-type (setq agenda-type "a"))
-                                        (cond
-                                         ((string= target-type "agenda_line")
-                                          (save-window-excursion
-                                            (let ((org-agenda-window-setup 'current-window))
-                                              (org-agenda nil agenda-type)
-                                              (with-current-buffer "*Org Agenda*"
-                                                (goto-char (point-min))
-                                                (forward-line (1- (string-to-number target)))
-                                                (if (org-agenda-check-type nil 'agenda 'todo 'tags 'search)
-                                                    (progn
-                                                      (if new-state
-                                                          (org-agenda-todo new-state)
-                                                        (org-agenda-todo))
-                                                      (org-save-all-org-buffers)
-                                                      ;; Refresh the agenda to keep line numbers in sync
-                                                      (org-agenda-redo t)
-                                                      ;; Regenerate the single agenda file
-                                                      (with-current-buffer "*Org Agenda*"
-                                                        (write-region (point-min) (point-max) "/tmp/ClaudeWorkingFolder/agenda.txt"))
-                                                      (format "Successfully changed state of item at line %s" target))
-                                                  (error "No valid agenda item found at line %s" target))))))
-                                         ((string= target-type "org_heading")
-                                          (unless org-file
-                                            (error "org_file parameter is required when target_type is 'org_heading'"))
-                                          (save-window-excursion
-                                            (find-file org-file)
-                                            (goto-char (point-min))
-                                            (if (search-forward target nil t)
-                                                (progn
-                                                  (org-back-to-heading t)
-                                                  (if new-state
-                                                      (org-todo new-state)
-                                                    (org-todo))
-                                                  (save-buffer)
-                                                  (format "Successfully changed state of heading '%s' in %s" target org-file))
-                                              (error "Heading '%s' not found in %s" target org-file))))
-                                         (t (error "target_type must be either 'agenda_line' or 'org_heading'")))))
+                          (format "Agenda content written to %s" filename)))))
 
 (claude-code-defmcp mcp-org-agenda-todo-batch (batch-updates &optional agenda-type)
                     "Change the state of multiple agenda items in batch."
@@ -372,7 +325,10 @@
                           (blocked-files '()))
                       (dolist (file-path file-paths)
                         (cond
-                         ((not (claude-code-mcp-file-access-allowed-p file-path))
+                         ((and (boundp 'claude-code-mcp-restrict-file-access)
+                               claude-code-mcp-restrict-file-access
+                               (fboundp 'claude-code-mcp-file-access-allowed-p)
+                               (not (claude-code-mcp-file-access-allowed-p file-path)))
                           (push (format "%s -> BLOCKED (file access restricted)" file-path) blocked-files))
                          (t
                           (condition-case err
@@ -566,10 +522,12 @@
 
                                   (when with-content
                                     (setq info (concat info "=== BUFFER CONTENT ===\n"))
-                                    (let ((lines (split-string (buffer-string) "\n")))
+                                    (let ((lines (split-string (buffer-string) "\n"))
+                                          (line-num 0))
                                       (setq info (concat info (mapconcat
                                                                (lambda (line)
-                                                                 (format "%4d→%s" (1+ (cl-position line lines :test 'equal)) line))
+                                                                 (setq line-num (1+ line-num))
+                                                                 (format "%4d→%s" line-num line))
                                                                lines "\n")))))
 
                                   (write-region info nil filename)
@@ -905,9 +863,11 @@
                                 (let* ((sanitized-name (replace-regexp-in-string "[^a-zA-Z0-9-_]" "_" buffer-name))
                                        (filename (format "/tmp/ClaudeWorkingFolder/%s.txt" sanitized-name))
                                        (content (buffer-string))
-                                       (lines (split-string content "\n")))
+                                       (lines (split-string content "\n"))
+                                       (line-num 0))
                                   (write-region (mapconcat (lambda (line)
-                                                             (format "%4d→%s" (1+ (cl-position line lines :test 'equal)) line))
+                                                             (setq line-num (1+ line-num))
+                                                             (format "%4d→%s" line-num line))
                                                            lines "\n")
                                                 nil filename)
                                   (push filename successful-files)))
