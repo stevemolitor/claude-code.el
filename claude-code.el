@@ -2,7 +2,7 @@
 
 ;; Author: Stephen Molitor <stevemolitor@gmail.com>
 ;; Version: 0.2.0
-;; Package-Requires: ((emacs "30.0") (transient "0.9.3") (monet "0.0.1"))
+;; Package-Requires: ((emacs "30.0") (transient "0.9.3"))
 ;; Keywords: tools, ai
 ;; URL: https://github.com/stevemolitor/claude-code.el
 
@@ -16,7 +16,6 @@
 (require 'transient)
 (require 'project)
 (require 'cl-lib)
-(require 'monet)
 
 ;;;; Customization options
 (defgroup claude-code nil
@@ -49,6 +48,27 @@
   "Hook run after Claude is started."
   :type 'hook
   :group 'claude-code)
+
+(defcustom claude-code-process-environment-functions nil
+  "Abnormal hook for setting up and providing environment variables for Claude.
+
+Functions in this hook are called before starting Claude and should
+return a list of strings in the format \"VAR=VALUE\" to be added to the
+process environment. All results from all functions will be concatenated
+together.
+
+Each function receives two arguments: the Claude buffer name, and the
+directory Claude will be started in (typically the project root).
+
+Functions may perform setup operations (e.g., starting a websocket server)
+before returning the environment variables needed for Claude to connect.
+
+Example:
+  (add-hook \\='claude-code-process-environment-functions
+            (lambda (claude-buffer-name directory)
+              \\='(\"ANTHROPIC_API_KEY=sk-ant-...\"
+                \"ANTHROPIC_MODEL=claude-opus-4-20250514\")))"
+  :type 'hook)
 
 (defvar claude-code-event-hook nil
   "Hook run when Claude Code CLI triggers events.
@@ -145,13 +165,6 @@ resizing."
 Choose between \\='eat (default) and \\='vterm terminal emulators."
   :type '(radio (const :tag "Eat terminal emulator" eat)
                 (const :tag "Vterm terminal emulator" vterm))
-  :group 'claude-code)
-
-(defcustom claude-code-enable-ide-integration nil
-  "Enable IDE integration via MCP (Model Context Protocol).
-When non-nil, Claude Code will start an MCP server to provide
-IDE features to Claude."
-  :type 'boolean
   :group 'claude-code)
 
 (defcustom claude-code-no-delete-other-windows nil
@@ -328,9 +341,6 @@ for each directory across multiple invocations.")
 
 (defvar claude-code--window-widths nil
   "Hash table mapping windows to their last known widths for eat terminals.")
-
-(defvar-local claude-code--mcp-session nil
-  "MCP session for this Claude buffer.")
 
 ;;;; Key bindings
 ;;;###autoload (autoload 'claude-code-command-map "claude-code")
@@ -706,8 +716,6 @@ SWITCHES are optional command-line arguments for PROGRAM."
                                     process-environment))
          (buffer (get-buffer-create buffer-name)))
     (with-current-buffer buffer
-      ;; MCP server is already started via monet in claude-code-start
-
       ;; vterm needs to have an open window before starting the claude
       ;; process; otherwise Claude doesn't seem to know how wide its
       ;; terminal window is and it draws the input box too wide. But
@@ -716,8 +724,6 @@ SWITCHES are optional command-line arguments for PROGRAM."
       ;; `pop-to-buffer'. So, show the buffer, start vterm-mode (which
       ;; starts the vterm-shell claude process), and then hide the
       ;; buffer. We'll optionally re-open it later.
-      ;;
-      ;; [TODO] see if there's a cleaner way to do this.
       (pop-to-buffer buffer)
       (vterm-mode)
       (delete-window (get-buffer-window buffer))
@@ -1092,9 +1098,6 @@ If FORCE-PROMPT is non-nil, always prompt even if no instances exist."
   "Kill a Claude BUFFER by cleaning up hooks and processes."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
-      ;; Clean up MCP session if present
-      (when claude-code--mcp-session
-        (monet-cleanup-session (buffer-name buffer)))
       ;; Remove the adjust window size advice if it was added
       (when claude-code-optimize-window-resize
         (advice-remove (claude-code--term-get-adjust-process-window-size-fn claude-code-terminal-backend) #'claude-code--adjust-window-size-advice))
@@ -1190,19 +1193,14 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
          ;; Set process-adaptive-read-buffering to nil to avoid flickering while Claude is processing
          (process-adaptive-read-buffering nil)
 
-         ;; Start MCP server if IDE integration is enabled
-         (mcp-port (when claude-code-enable-ide-integration
-                     (let ((session (monet-start-server-in-directory buffer-name dir)))
-                       (when session
-                         (monet-session-port session)))))
-
-         ;; Set environment variables for MCP
-         (process-environment (if mcp-port
-                                  (append `(,(format "CLAUDE_CODE_SSE_PORT=%d" mcp-port)
-                                            "ENABLE_IDE_INTEGRATION=true")
-                                          process-environment)
-                                process-environment))
-
+         ;; Set environment variables by running all functions in the hook
+         (extra-env-variables (apply #'append
+                                     (mapcar (lambda (func)
+                                               (funcall func buffer-name dir))
+                                             claude-code-process-environment-functions)))
+         (process-environment (append `(,(format "CLAUDE_BUFFER_NAME=%s" buffer-name))
+                                      extra-env-variables
+                                      process-environment))
          ;; Start the terminal process
          (buffer (claude-code--term-make claude-code-terminal-backend buffer-name claude-code-program program-switches)))
 
@@ -1216,11 +1214,6 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
 
     ;; setup claude buffer
     (with-current-buffer buffer
-
-      ;; Store MCP session if we started one
-      (when (and claude-code-enable-ide-integration mcp-port)
-        (setq claude-code--mcp-session (monet-get-session buffer-name)))
-
       ;; Configure terminal with backend-specific settings
       (claude-code--term-configure claude-code-terminal-backend)
 
@@ -1427,9 +1420,9 @@ ARGS can contain additional arguments passed from the CLI."
   ;; from trying to evaluate leftover arguments as Lisp expressions
   (let ((json-data (when server-eval-args-left (pop server-eval-args-left)))
         (extra-args (prog1 server-eval-args-left (setq server-eval-args-left nil))))
-    (let ((message (list :type type 
-                         :buffer-name buffer-name 
-                         :json-data json-data 
+    (let ((message (list :type type
+                         :buffer-name buffer-name
+                         :json-data json-data
                          :args (append args extra-args))))
       (run-hook-with-args 'claude-code-event-hook message))))
 
