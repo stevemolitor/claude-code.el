@@ -460,6 +460,9 @@
                                           ;; Capture bindings directly without creating popups
                                           (let ((inhibit-message t)
                                                 (help-window-setup-finish-functions nil)
+                                                (display-buffer-alist '((".*" . (display-buffer-no-window))))
+                                                (pop-up-windows nil)
+                                                (pop-up-frames nil)
                                                 (bindings-output ""))
                                             (save-window-excursion
                                               (with-temp-buffer
