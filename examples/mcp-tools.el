@@ -21,6 +21,38 @@
 
 ;;; Code:
 
+;;;; Configuration Variables
+
+(defcustom claude-code-mcp-blocked-buffer-patterns
+  '("password" ".pem" "secret" ".key" "token" "credential" "auth" ".ssh")
+  "List of patterns that will block buffer access in MCP tools.
+Buffer names or file paths containing these patterns will be blocked
+from access through MCP tools for security."
+  :type '(repeat string)
+  :group 'claude-code)
+
+;;;; Security Functions  
+
+(defun claude-code-mcp-buffer-blocked-p (buffer-name)
+  "Check if a buffer should be blocked based on name or file path.
+Returns t if BUFFER-NAME or its associated file path contains any
+pattern from `claude-code-mcp-blocked-buffer-patterns'."
+  (when (and buffer-name claude-code-mcp-blocked-buffer-patterns)
+    (let ((buffer-obj (get-buffer buffer-name))
+          (blocked nil))
+      ;; Check buffer name against patterns
+      (dolist (pattern claude-code-mcp-blocked-buffer-patterns)
+        (when (string-match-p (regexp-quote pattern) buffer-name)
+          (setq blocked t)))
+      ;; If buffer exists, also check its file path
+      (when (and buffer-obj (not blocked))
+        (let ((file-path (buffer-file-name buffer-obj)))
+          (when file-path
+            (dolist (pattern claude-code-mcp-blocked-buffer-patterns)
+              (when (string-match-p (regexp-quote pattern) file-path)
+                (setq blocked t))))))
+      blocked)))
+
 ;;;; Basic Utilities
 
 (claude-code-defmcp mcp-hello-world (name)
