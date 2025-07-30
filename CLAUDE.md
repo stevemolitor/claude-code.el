@@ -97,6 +97,14 @@ This project includes an MCP (Model Context Protocol) server that exposes Emacs 
 - **Returns**: Status of parentheses balance for each file with error locations
 - **Usage**: Debug Emacs Lisp syntax errors, validate code before loading
 
+**`mcp-count-parens`** - Count parentheses between two lines in a file
+- **Parameters**: 
+  - `file-path` (string) - Path to the file to analyze
+  - `start-line` (number) - Starting line number (1-based)
+  - `end-line` (number) - Ending line number (1-based)
+- **Returns**: Count of opening and closing parentheses with net balance
+- **Usage**: Debug parentheses balance issues, analyze specific code sections
+
 #### Emacs Introspection
 
 **`mcp-emacs-search`** - Search for symbols, commands, variables, functions
@@ -273,6 +281,13 @@ The `:mcp-schema` uses a simplified format:
 
 ;; MCP server port (default: 8765)
 (setq claude-code-mcp-port 8765)
+
+;; Restrict file access to current directory and /tmp/ClaudeWorkingFolder/ (default: t)
+(setq claude-code-mcp-restrict-file-access nil)  ; Allow access to any file
+
+;; Customize buffer blocking patterns (default includes common sensitive patterns)
+(setq claude-code-mcp-blocked-buffer-patterns 
+      '("password" ".pem" "secret" ".key" "token" "credential" "auth" ".ssh"))
 ```
 
 ### Troubleshooting
@@ -319,10 +334,10 @@ Security validation occurs at the TypeScript layer before parameters reach Emacs
 - Password files, SSH keys, or API credentials you may have opened
 - Any content in your Emacs session
 
-**File Access**: The `mcp-open-file` tool can access:
-- Any file in the current working directory and subdirectories (relative paths)
-- Files in `/tmp/ClaudeWorkingFolder/` (absolute paths)
-- **Blocked**: Absolute paths outside `/tmp/ClaudeWorkingFolder/` and directory traversal (`../`)
+**File Access**: The `mcp-open-file` tool access depends on `claude-code-mcp-restrict-file-access`:
+- **When enabled (default)**: Only current working directory, subdirectories, and `/tmp/ClaudeWorkingFolder/`
+- **When disabled**: Can access any file on the system (blocks only injection patterns)
+- **Always blocked**: Directory traversal (`../`) when restrictions enabled
 
 **Emacs Users Often Have Sensitive Data**: Many Emacs users keep sensitive information in their editor environment - configuration files with tokens, personal notes, password managers, SSH configs, etc. **Assume Claude has access to any sensitive information in your Emacs session.**
 
@@ -355,3 +370,39 @@ Test the server manually:
 2. Load example tools: `(load-file "examples/mcp-tools.el")`
 3. Check server status: `M-x claude-code-mcp-status`
 4. View available tools via MCP client or Claude Code CLI
+
+## Debugging Elisp Code
+
+When debugging parentheses balance issues in Elisp code, use these MCP tools:
+
+### Parentheses Debugging Tools
+
+**`mcp-check-parens`** - Comprehensive parentheses validation
+- Validates entire file for balanced parentheses, quotes, and brackets
+- Reports exact line and column of first unmatched bracket
+- Essential for debugging syntax errors before loading Elisp code
+
+**`mcp-count-parens`** - Granular parentheses analysis  
+- Counts opening and closing parentheses between specific lines
+- Shows net balance (should be 0 for complete expressions)
+- Useful for isolating problematic code sections
+- Note: Individual code sections may have non-zero net balance, but complete functions should balance
+
+### Debugging Workflow
+
+1. **Full file check**: Use `mcp-check-parens` to identify if there are balance issues
+2. **Section analysis**: Use `mcp-count-parens` to analyze specific functions or code blocks
+3. **Iterative fixing**: Fix one unmatched bracket at a time, re-checking after each fix
+4. **Function boundaries**: Ensure each complete function definition has net balance of 0
+
+### Example Usage
+
+```elisp
+;; Check entire file
+mcp-check-parens(["examples/mcp-tools.el"])
+
+;; Analyze specific function (lines 34-44)  
+mcp-count-parens("examples/mcp-tools.el", 34, 44)
+```
+
+This approach helps systematically identify and fix parentheses mismatches in complex Elisp code.

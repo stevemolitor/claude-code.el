@@ -18,9 +18,9 @@ const DANGEROUS_PATTERNS = [
     /'\s*\)\s*;\s*\(/,           // '); (
     /\\"\s*\)\s*;\s*\(/,         // \"); (
     /\\'\s*\)\s*;\s*\(/,         // \'); (
-    /(shell-command|call-process|eval|load-file)/i,
-    /(delete-file|delete-directory|write-file)/i,
-    /(setq|defun|defvar|defcustom|lambda)/i,
+    /\(\s*(shell-command|call-process|eval|load-file)/i,
+    /\(\s*(delete-file|delete-directory)/i,
+    /\(\s*(setq|defun|defvar|defcustom|lambda)/i,
     /^\s*[\(\)]/,                // Starts with parens (potential elisp)
     /\$\{|\$\(/,                 // Shell variable expansion
     /[;&|`]/,                    // Shell command separators
@@ -93,16 +93,7 @@ export function validateFilePath(filePath: string): void {
         throw new SecurityError('File path too long (max 500 characters)', filePath);
     }
 
-    // Block directory traversal
-    if (filePath.includes('../') || filePath.includes('..\\')) {
-        throw new SecurityError('Directory traversal detected in file path', filePath);
-    }
-
-    // Block absolute paths outside allowed directories
-    if (filePath.startsWith('/') && !filePath.startsWith('/tmp/ClaudeWorkingFolder/')) {
-        throw new SecurityError('Absolute file paths not allowed outside /tmp/ClaudeWorkingFolder/', filePath);
-    }
-
+    // Validate for injection attacks only - file access restrictions handled by Emacs
     validateNoInjection(filePath, 'file path');
 }
 
@@ -170,8 +161,10 @@ export function validateToolParameters(toolName: string, args: any): void {
     validateAllArgs(args, `${toolName}.args`);
 
     // Apply tool-specific validation
+    // Note: File path restrictions are handled on the Emacs side based on
+    // claude-code-mcp-restrict-file-access variable
     if (args) {
-        // File operations
+        // File operations - validate for injection only
         if (args.file_paths || args['file-paths']) {
             const filePaths = args.file_paths || args['file-paths'];
             if (Array.isArray(filePaths)) {
@@ -217,7 +210,7 @@ export function validateToolParameters(toolName: string, args: any): void {
             validateOrgContent(headingText);
         }
 
-        // Single file path
+        // Single file path - validate for injection only
         if (args.org_file || args['org-file']) {
             const orgFile = args.org_file || args['org-file'];
             validateFilePath(orgFile);

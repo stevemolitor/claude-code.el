@@ -1854,6 +1854,23 @@ enter Claude commands."
   :type 'integer
   :group 'claude-code)
 
+(defcustom claude-code-mcp-blocked-buffer-patterns
+  '("password" ".pem" "secret" ".key" "token" "credential" "auth" ".ssh")
+  "List of patterns to block buffer access from MCP tools.
+Buffers containing any of these strings (case-insensitive) in their 
+name or associated file path will be blocked from MCP tool access.
+This helps prevent accidental exposure of sensitive information."
+  :type '(repeat string)
+  :group 'claude-code)
+
+(defcustom claude-code-mcp-restrict-file-access t
+  "Whether to restrict MCP file access to current directory and /tmp/ClaudeWorkingFolder/.
+When non-nil, absolute file paths outside /tmp/ClaudeWorkingFolder/ are blocked,
+and directory traversal (../) is prevented. When nil, file path restrictions
+are relaxed, but buffer blocking patterns still apply for security."
+  :type 'boolean
+  :group 'claude-code)
+
 (defvar claude-code-mcp-server-process nil
   "Process for the MCP TCP server.")
 
@@ -1874,6 +1891,37 @@ enter Claude commands."
 
 (defvar claude-code-mcp-bridge-restart-interval 10
   "Minimum seconds between restart attempts.")
+
+(defun claude-code-mcp-buffer-blocked-p (buffer-name)
+  "Check if BUFFER-NAME should be blocked from MCP tool access.
+Returns t if the buffer name or associated file path contains any
+pattern from `claude-code-mcp-blocked-buffer-patterns'."
+  (when buffer-name
+    (let ((buffer (get-buffer buffer-name))
+          (blocked nil))
+      (when buffer
+        (let ((name (buffer-name buffer))
+              (file-path (buffer-file-name buffer)))
+          (dolist (pattern claude-code-mcp-blocked-buffer-patterns)
+            (when (or (and name (string-match-p (regexp-quote pattern) name t))
+                      (and file-path (string-match-p (regexp-quote pattern) file-path t)))
+              (setq blocked t))))))))
+
+(defun claude-code-mcp-file-access-allowed-p (file-path)
+  "Check if FILE-PATH should be allowed for MCP tool access.
+Returns t if access is allowed, nil if blocked.
+Respects `claude-code-mcp-restrict-file-access' setting."
+  (when file-path
+    (if claude-code-mcp-restrict-file-access
+        ;; Apply restrictions when enabled
+        (and 
+         ;; Block directory traversal
+         (not (or (string-match-p "\\.\\./\\|\\.\\.\\\\", file-path)))
+         ;; Block absolute paths outside allowed directories
+         (or (not (string-match-p "^/" file-path))
+             (string-match-p "^/tmp/ClaudeWorkingFolder/" file-path)))
+      ;; When restrictions disabled, allow all paths
+      t)))
 
 (defmacro claude-code-defmcp (name args docstring &rest body-and-properties)
   "Define an MCP tool function with embedded properties.
