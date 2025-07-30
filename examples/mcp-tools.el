@@ -457,18 +457,20 @@
                                           (insert (format "Major mode: %s\n\n"
                                                           (buffer-local-value 'major-mode target-buffer)))
                                           (insert "=== BUFFER KEY BINDINGS ===\n")
-                                          ;; Capture bindings directly without creating popups
-                                          (let ((inhibit-message t)
-                                                (help-window-setup-finish-functions nil)
-                                                (display-buffer-alist '((".*" . (display-buffer-no-window))))
-                                                (pop-up-windows nil)
-                                                (pop-up-frames nil)
-                                                (bindings-output ""))
-                                            (save-window-excursion
-                                              (with-temp-buffer
-                                                (describe-buffer-bindings target-buffer nil include-global)
-                                                (setq bindings-output (buffer-string))))
-                                            (insert bindings-output))
+                                          ;; Get keymaps directly without describe-buffer-bindings
+                                          (with-current-buffer target-buffer
+                                            (let ((major-map (current-local-map))
+                                                  (minor-maps (current-minor-mode-maps)))
+                                              (insert "=== MAJOR MODE KEYMAP ===\n")
+                                              (when major-map
+                                                (insert (format "Keymap: %s\n" major-map)))
+                                              (insert "\n=== MINOR MODE KEYMAPS ===\n")
+                                              (dolist (map minor-maps)
+                                                (when map
+                                                  (insert (format "Keymap: %s\n" map))))
+                                              (when include-global
+                                                (insert "\n=== GLOBAL KEYMAP ===\n")
+                                                (insert (format "Global keymap: %s\n" (current-global-map))))))
                                           (when include-global
                                             (insert "\n=== NOTE: Global bindings included above ===\n")))
                                       (insert (format "Error: Buffer '%s' not found\n" buffer-name))))
