@@ -467,6 +467,11 @@ Customize MCP server behavior:
 
 ;; Change MCP server port (default: 8765)
 (setq claude-code-mcp-port 8765)
+
+;; File access restrictions (default: t)
+;; When t: restricts file access to current directory and /tmp/ClaudeWorkingFolder/
+;; When nil: allows access to any file (security risk - use with caution)
+(setq claude-code-mcp-restrict-file-access nil)
 ```
 
 ### Loading Tools
@@ -482,17 +487,78 @@ Customize MCP server behavior:
 
 ### Creating Custom Tools
 
-Use the `claude-code-defmcp` macro to create your own MCP tools:
+The `claude-code-defmcp` macro is the core mechanism for defining MCP tools. It combines standard Emacs Lisp function definition with metadata registration for the MCP protocol.
+
+#### Macro Syntax
 
 ```elisp
-(claude-code-defmcp my-custom-tool (param1 param2)
-  "Description of what this tool does."
+(claude-code-defmcp function-name (parameters)
+  "Function documentation string."
   :mcp-description "Brief description for MCP clients"
-  :mcp-schema '((param1 . ("string" "Description of param1"))
-                (param2 . ("number" "Description of param2")))
-  ;; Your function body here
-  (format "Processed %s and %s" param1 param2))
+  :mcp-schema '((param1 . ("type" "description"))
+                (param2 . ("type" "description")))
+  ;; Function body
+  (function-implementation))
 ```
+
+#### Parameters
+
+- **function-name**: The name of the function (will be prefixed with `mcp-` for tool name)
+- **parameters**: Standard Emacs Lisp parameter list (supports `&optional` and `&rest`)
+- **docstring**: Documentation string for the function
+- **:mcp-description**: Brief description shown to MCP clients
+- **:mcp-schema**: Parameter schema defining types and descriptions
+
+#### Schema Format
+
+The `:mcp-schema` defines parameters using this format:
+```elisp
+'((parameter-name . ("type" "description")))
+```
+
+**Supported types**: `"string"`, `"number"`, `"boolean"`, `"array"`, `"object"`
+
+#### Complete Example
+
+```elisp
+(claude-code-defmcp my-file-analyzer (file-paths &optional include-stats)
+  "Analyze files and return information about them."
+  :mcp-description "Analyze files and return detailed information"
+  :mcp-schema '((file-paths . ("array" "List of file paths to analyze"))
+                (include-stats . ("boolean" "Include file statistics")))
+  (let ((results '()))
+    (dolist (file file-paths)
+      (when (file-exists-p file)
+        (let ((info `((file . ,file)
+                      (size . ,(file-attribute-size (file-attributes file)))
+                      (readable . ,(file-readable-p file)))))
+          (when include-stats
+            (setq info (append info `((modified . ,(format-time-string "%Y-%m-%d" 
+                                                   (file-attribute-modification-time 
+                                                    (file-attributes file))))))))
+          (push info results))))
+    (format "Analyzed %d files: %s" (length results) results)))
+```
+
+#### How It Works
+
+The macro expands to:
+1. A standard `defun` with your function body
+2. Property assignments marking it as an MCP tool:
+   ```elisp
+   (put 'function-name :mcp-tool t)
+   (put 'function-name :mcp-description "...")
+   (put 'function-name :mcp-schema '(...))
+   ```
+
+#### Tool Discovery
+
+Tools are automatically discovered by the MCP server when Claude starts up by:
+1. Scanning all defined symbols for the `:mcp-tool` property
+2. Extracting metadata (description and schema)
+3. Registering with the MCP protocol
+
+No manual registration is required - just define the function and restart the MCP server.
 
 ### Example Tools
 
