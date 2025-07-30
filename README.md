@@ -401,7 +401,7 @@ See the [Claude Code hooks documentation](https://docs.anthropic.com/en/docs/cla
 
 ## MCP Server Integration
 
-claude-code.el includes a built-in MCP (Model Context Protocol) server that allows MCP-compatible clients to interact with Emacs through a rich set of tools. This enables external applications to access Emacs functionality like buffer management, org-mode operations, and introspection.
+claude-code.el includes a built-in MCP (Model Context Protocol) server that allows MCP-compatible clients to interact with Emacs through a rich set of tools. This enables claude (or external applications) to access Emacs functionality like buffer management, org-mode operations, and introspection.
 
 ### Features
 
@@ -472,6 +472,13 @@ Customize MCP server behavior:
 ;; When t: restricts file access to current directory and /tmp/ClaudeWorkingFolder/
 ;; When nil: allows access to any file (security risk - use with caution)
 (setq claude-code-mcp-restrict-file-access nil)
+
+;; Buffer blocking patterns (default: see below)
+;; Blocks buffers whose names OR file paths contain these patterns
+;; Example: blocks both *Password-Store* and /home/user/mypassword.txt
+;; Used by example tools: mcp-view-buffer, mcp-emacs-buffer-info, mcp-emacs-keymap-analysis
+(setq claude-code-mcp-blocked-buffer-patterns 
+      '("password" ".pem" "secret" ".key" "token" "credential" "auth" ".ssh"))
 ```
 
 ### Loading Tools
@@ -579,6 +586,10 @@ The package includes comprehensive example tools in `examples/mcp/mcp-tools.el` 
 - **Buffer Access**: Claude can read any buffer open in Emacs (source code, personal notes, credentials, etc.)
 - **File Access**: Claude can access files in your current working directory and subdirectories
 - **Sensitive Data Risk**: Emacs users often have sensitive information in their editor (SSH keys, API tokens, password files)
+
+**Security Features in Example Tools**:
+- **Buffer Blocking**: The example tools use `claude-code-mcp-blocked-buffer-patterns` to block access to buffers whose names OR file paths contain sensitive patterns (passwords, keys, secrets, etc.). For example, both `*Password-Store*` buffer and a buffer visiting `/home/user/mypassword.txt` would be blocked.
+- **File Access Restrictions**: When `claude-code-mcp-restrict-file-access` is enabled (default), file operations are limited to the current directory and `/tmp/ClaudeWorkingFolder/`
 
 **Assume Claude has access to any sensitive information in your Emacs session.** The combination of file access + web access creates potential for data exfiltration attacks ([Lethal Trifecta](https://simonwillison.net/tags/lethal-trifecta/)). Consider:
 - Using dedicated Emacs sessions for Claude interactions
