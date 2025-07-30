@@ -577,7 +577,7 @@ The package includes comprehensive example tools in `examples/mcp/mcp-tools.el` 
 - **Buffer Management**: Get buffer info, view contents
 - **Org-Mode Integration**: Access agenda, manage TODOs, schedule items
 
-**📖 For detailed documentation of all 22 available MCP tools with parameters, usage examples, and return values, see [CLAUDE.md](CLAUDE.md#available-tools-from-examplesmcp-toolsel)**
+**📖 For usage instructions and examples**: The file [examples/mcp/CLAUDE.md](examples/mcp/CLAUDE.md) contains instructions for Claude on how to use the MCP tools. While written for Claude, humans may find it helpful for understanding tool usage patterns and examples.
 
 ### Security Considerations
 
@@ -597,7 +597,6 @@ The package includes comprehensive example tools in `examples/mcp/mcp-tools.el` 
 - Being cautious about which directories you run Claude from
 - **Limiting Claude's web access** to prevent data exfiltration
 
-For complete security details, see [CLAUDE.md Security Section](CLAUDE.md#security-considerations).
 
 ### Uninstalling
 

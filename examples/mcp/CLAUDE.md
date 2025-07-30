@@ -1,44 +1,10 @@
-# Claude Code Development Guide
+# MCP Tools Usage Guide for Claude
 
-## Build and Test Commands
-- Install package: `M-x package-install-file RET /path/to/claude-code.el`
-- Use project Makefile targets (preferred methods):
-  - Byte compile: `make compile`
-  - Lint with checkdoc: `make checkdoc`
-  - Run both checkdoc and compile: `make all`
-- Alternative direct commands:
-  - Byte compile: `emacs -Q --batch -f batch-byte-compile claude-code.el`
-  - Check package: `emacs -Q --batch -l package-lint.el -f package-lint-batch-and-exit claude-code.el`
-  - Lint with checkdoc: `emacs -Q --batch -l checkdoc -f checkdoc-file claude-code.el`
+This guide provides instructions for using the Emacs MCP tools and creating new ones. While written for Claude, humans may find it helpful for understanding tool usage patterns.
 
-## Code Style Guidelines
-- Prefix all functions/variables with `claude-code-` (public) or `claude-code--` (private)
-- Follow standard Emacs Lisp naming conventions (kebab-case)
-- Use lexical binding (include `lexical-binding: t` in header)
-- Organize with section headers: `;;;; Section Name`
-- Maintain proper package headers and autoload declarations
-- Docstring for all functions and variables
-  - Add a blank line after the first line of docstrings for multi-line descriptions
-  - First line should be a complete sentence ending with a period
-- Maintain dependency requirements: Emacs 30.1+, transient 0.4.0+, eat 0.8+
+## Using MCP Tools
 
-## Error Handling
-- Use `if-let` for conditional execution with potential null values
-- Provide clear error messages with `error` function
-- Check for running Claude instance before sending commands
-
-## Project Structure
-- Single file package with clear module organization
-- Licensed under Apache License 2.0
-
-## MCP Server Usage Guide
-
-This project includes an MCP (Model Context Protocol) server that exposes Emacs functionality to MCP-compatible clients.
-
-### Server Architecture
-- **TCP Server**: Emacs-based TCP server (port 8765) handles MCP protocol
-- **Bridge Process**: Node.js process bridges between Emacs and external MCP clients
-- **Tool Discovery**: Dynamic discovery of functions marked with `claude-code-defmcp`
+The MCP server provides tools to interact with Emacs. These tools must be loaded before use.
 
 ### Setting Up the MCP Server
 
