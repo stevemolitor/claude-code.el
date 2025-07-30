@@ -50,7 +50,7 @@ This project includes an MCP (Model Context Protocol) server that exposes Emacs 
 
 2. **Load example tools** (the server provides no tools by default):
    ```elisp
-   (load-file "examples/mcp-tools.el")
+   (load-file "examples/mcp/mcp-tools.el")
    ```
 
 3. **Install in Claude Code CLI**:
@@ -67,7 +67,7 @@ This project includes an MCP (Model Context Protocol) server that exposes Emacs 
    }
    ```
 
-### Available Tools (from examples/mcp-tools.el)
+### Available Tools (from examples/mcp/mcp-tools.el)
 
 #### Basic Utilities
 
@@ -292,7 +292,7 @@ The `:mcp-schema` uses a simplified format:
 
 ### Troubleshooting
 
-1. **No tools available**: Load `examples/mcp-tools.el` or define your own tools
+1. **No tools available**: Load `examples/mcp/mcp-tools.el` or define your own tools
 2. **Bridge process crashes**: Check `*claude-code-mcp-bridge*` buffer for errors
 3. **Permission denied**: Add `/tmp/ClaudeWorkingFolder` to Claude Code settings
 4. **Port conflicts**: Change `claude-code-mcp-port` to an available port
@@ -352,7 +352,7 @@ Security validation occurs at the TypeScript layer before parameters reach Emacs
 
 - MCP server source: `mcp-server/src/index.ts`
 - Security validation: `mcp-server/src/security.ts`
-- Example tools: `examples/mcp-tools.el`
+- Example tools: `examples/mcp/mcp-tools.el`
 - Temp file directory: `/tmp/ClaudeWorkingFolder/`
 - Bridge process logs: `*claude-code-mcp-bridge*` buffer
 
@@ -367,7 +367,7 @@ claude mcp remove emacs
 
 Test the server manually:
 1. Start Emacs with claude-code loaded
-2. Load example tools: `(load-file "examples/mcp-tools.el")`
+2. Load example tools: `(load-file "examples/mcp/mcp-tools.el")`
 3. Check server status: `M-x claude-code-mcp-status`
 4. View available tools via MCP client or Claude Code CLI
 
@@ -399,10 +399,10 @@ When debugging parentheses balance issues in Elisp code, use these MCP tools:
 
 ```elisp
 ;; Check entire file
-mcp-check-parens(["examples/mcp-tools.el"])
+mcp-check-parens(["examples/mcp/mcp-tools.el"])
 
 ;; Analyze specific function (lines 34-44)  
-mcp-count-parens("examples/mcp-tools.el", 34, 44)
+mcp-count-parens("examples/mcp/mcp-tools.el", 34, 44)
 ```
 
 This approach helps systematically identify and fix parentheses mismatches in complex Elisp code.

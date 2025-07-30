@@ -427,7 +427,7 @@ The MCP server starts automatically when you run `claude-code` if `claude-code-m
 
 2. **Load example tools** (required to have any MCP functionality):
    ```elisp
-   (load-file "~/.emacs.d/.local/straight/repos/claude-code.el/examples/mcp-tools.el")
+   (load-file "~/.emacs.d/.local/straight/repos/claude-code.el/examples/mcp/mcp-tools.el")
    ```
 
 3. **Install in Claude Code CLI**:
@@ -480,7 +480,7 @@ Customize MCP server behavior:
 
 1. **Load the example tools**:
    ```elisp
-   (load-file "examples/mcp-tools.el")
+   (load-file "examples/mcp/mcp-tools.el")
    ```
 
 2. **Define your own tools** using the `claude-code-defmcp` macro (see below)
@@ -562,7 +562,7 @@ No manual registration is required - just define the function and restart the MC
 
 ### Example Tools
 
-The package includes comprehensive example tools in `examples/mcp-tools.el` that you must explicitly load:
+The package includes comprehensive example tools in `examples/mcp/mcp-tools.el` that you must explicitly load:
 
 - **Variable Access**: Get Emacs variable values
 - **File Operations**: Open files, check parentheses balance

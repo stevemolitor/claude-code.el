@@ -12,7 +12,7 @@
 ;;
 ;; To use these tools:
 ;; 1. Load claude-code.el first to get the claude-code-defmcp macro
-;; 2. Load this file: (load-file "examples/mcp-tools.el")  
+;; 2. Load this file: (load-file "examples/mcp/mcp-tools.el")  
 ;; 3. Start claude-code with MCP enabled
 ;; 4. Configure Claude Desktop to use the MCP server
 ;;
