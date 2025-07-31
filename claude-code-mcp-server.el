@@ -257,13 +257,10 @@ PROCESS is the network process, EVENT is the event description."
           (delq process claude-code-mcp-client-connections))
     (message "MCP client disconnected")))
 
-(defun claude-code-mcp-server-filter (server client message)
-  "Accept new MCP client connections.
-SERVER is the server process, CLIENT is the new client process, MESSAGE is unused."
-  (push client claude-code-mcp-client-connections)
-  (set-process-filter client #'claude-code-mcp-filter)
-  (set-process-sentinel client #'claude-code-mcp-sentinel)
-  (message "MCP client connected"))
+(defun claude-code-mcp-server-filter (process string)
+  "Handle incoming data from MCP clients.
+PROCESS is the server process receiving data, STRING is the received data."
+  (claude-code-mcp-filter process string))
 
 ;;;; Server management
 
