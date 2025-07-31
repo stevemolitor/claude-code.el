@@ -961,6 +961,92 @@ pattern from `claude-code-mcp-blocked-buffer-patterns'."
                                       (- open-count close-count)))))
                       (format "File not found: %s" file-path)))
 
+(claude-code-defmcp mcp-check-parens-range (file-path start-line end-line)
+                    "Check parentheses balance in a specific line range by copying to scratch buffer."
+                    :mcp-description "Check parentheses balance in a specific line range by copying to scratch buffer"
+                    :mcp-schema '((file-path . ("string" "Path to the file to analyze"))
+                                  (start-line . ("number" "Starting line number (1-based)"))
+                                  (end-line . ("number" "Ending line number (1-based)")))
+                    (if (file-exists-p file-path)
+                        (with-temp-buffer
+                          (insert-file-contents file-path)
+                          (goto-char (point-min))
+                          (forward-line (1- start-line))
+                          (let ((region-start (point)))
+                            (forward-line (- end-line start-line -1))
+                            (let ((region-text (buffer-substring region-start (point))))
+                              (with-temp-buffer
+                                (insert region-text)
+                                (emacs-lisp-mode)
+                                (condition-case err
+                                    (progn
+                                      (check-parens)
+                                      (format "%s (lines %d-%d): Parentheses are balanced correctly" 
+                                              file-path start-line end-line))
+                                  (error
+                                   (format "%s (lines %d-%d): Parentheses error at line %d, column %d: %s"
+                                           file-path 
+                                           (+ start-line (line-number-at-pos (point)) -2)
+                                           end-line
+                                           (+ start-line (line-number-at-pos (point)) -2)
+                                           (current-column)
+                                           (error-message-string err))))))))
+                      (format "File not found: %s" file-path)))
+
+(claude-code-defmcp mcp-show-paren-balance (file-path start-line end-line)
+                    "Show running parentheses balance count at the beginning of each line."
+                    :mcp-description "Show running parentheses balance count at the beginning of each line"
+                    :mcp-schema '((file-path . ("string" "Path to the file to analyze"))
+                                  (start-line . ("number" "Starting line number (1-based)"))
+                                  (end-line . ("number" "Ending line number (1-based)")))
+                    (if (file-exists-p file-path)
+                        (with-temp-buffer
+                          (insert-file-contents file-path)
+                          (goto-char (point-min))
+                          (forward-line (1- start-line))
+                          (let ((result "")
+                                (balance 0)
+                                (current-line start-line)
+                                (in-string nil)
+                                (in-comment nil))
+                            (while (and (<= current-line end-line) (not (eobp)))
+                              (let ((line-start (point))
+                                    (line-balance balance))
+                                ;; Process each character in the line
+                                (while (and (not (eolp)) (not (eobp)))
+                                  (let ((char (char-after)))
+                                    (cond
+                                     ;; Handle string state
+                                     ((and (eq char ?\") (not in-comment))
+                                      (unless (eq (char-before) ?\\)
+                                        (setq in-string (not in-string))))
+                                     ;; Handle comment state
+                                     ((and (eq char ?\;) (not in-string))
+                                      (setq in-comment t))
+                                     ;; Count parentheses only if not in string or comment
+                                     ((and (eq char ?\() (not in-string) (not in-comment))
+                                      (setq balance (1+ balance)))
+                                     ((and (eq char ?\)) (not in-string) (not in-comment))
+                                      (setq balance (1- balance)))))
+                                  (forward-char 1))
+                                ;; Add line with balance info
+                                (let ((line-content (buffer-substring line-start (point))))
+                                  (setq result (concat result 
+                                                       (format "%4d [%+3d]: %s\n" 
+                                                               current-line 
+                                                               line-balance
+                                                               (string-trim-right line-content)))))
+                                ;; Reset comment state at newline
+                                (setq in-comment nil)
+                                (forward-line 1)
+                                (setq current-line (1+ current-line))))
+                            (unless (file-directory-p "/tmp/ClaudeWorkingFolder")
+                              (make-directory "/tmp/ClaudeWorkingFolder" t))
+                            (let ((output-file (format "/tmp/ClaudeWorkingFolder/paren_balance_%d_%d.txt" start-line end-line)))
+                              (write-region result nil output-file)
+                              (format "Parentheses balance written to %s (final balance: %+d)" output-file balance))))
+                      (format "File not found: %s" file-path)))
+
 (provide 'mcp-tools)
 
 
