@@ -297,10 +297,9 @@ PROCESS is the server process receiving data, STRING is the received data."
 
   (message "Claude Code MCP server stopped"))
 
-;;;; Auto-start server
+;;;; Auto-start server via hook
 
-(when claude-code-mcp-enabled
-  (claude-code-mcp-start-server))
+(add-hook 'claude-code-start-hook #'claude-code-mcp-start-server)
 
 (provide 'claude-code-mcp-server)
 ;;; claude-code-mcp-server.el ends here

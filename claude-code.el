@@ -16,7 +16,6 @@
 (require 'transient)
 (require 'project)
 (require 'cl-lib)
-(require 'json)
 
 ;;;; Customization options
 (defgroup claude-code nil
@@ -96,9 +95,9 @@ This controls how the return key and its modifiers behave in Claude buffers:
 `\"S\"' is the shift key.
 `\"s\"' is the hyper key, which is the COMMAND key on macOS."
   :type '(choice (const :tag "Newline on shift-return (s-return for newline, RET to send)" newline-on-shift-return)
-          (const :tag "Newline on alt-return (M-return for newline, RET to send)" newline-on-alt-return)
-          (const :tag "Shift-return to send (RET for newline, S-return to send)" shift-return-to-send)
-          (const :tag "Super-return to send (RET for newline, s-return to send)" super-return-to-send))
+                 (const :tag "Newline on alt-return (M-return for newline, RET to send)" newline-on-alt-return)
+                 (const :tag "Shift-return to send (RET for newline, S-return to send)" shift-return-to-send)
+                 (const :tag "Super-return to send (RET for newline, s-return to send)" super-return-to-send))
   :group 'claude-code)
 
 (defcustom claude-code-enable-notifications t
@@ -144,7 +143,7 @@ resizing."
   "Terminal backend to use for Claude Code.
 Choose between \\='eat (default) and \\='vterm terminal emulators."
   :type '(radio (const :tag "Eat terminal emulator" eat)
-          (const :tag "Vterm terminal emulator" vterm))
+                (const :tag "Vterm terminal emulator" vterm))
   :group 'claude-code)
 
 (defcustom claude-code-no-delete-other-windows nil
@@ -1214,11 +1213,6 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
 
       ;; run start hooks
       (run-hooks 'claude-code-start-hook)
-      
-      ;; Start MCP server if enabled
-      (when claude-code-mcp-enabled
-        (claude-code--start-mcp-server)
-        (claude-code--start-mcp-bridge-process))
 
       ;; Disable vertical scroll bar in claude buffer
       (setq-local vertical-scroll-bar nil)
@@ -1842,7 +1836,6 @@ enter Claude commands."
    (if (not (claude-code--term-in-read-only-p claude-code-terminal-backend))
        (claude-code-read-only-mode)
      (claude-code-exit-read-only-mode))))
-
 
 ;;;; Mode definition
 ;;;###autoload
