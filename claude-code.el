@@ -1128,7 +1128,11 @@ Returns the selected Claude buffer or nil."
   (if-let ((claude-code-buffer (claude-code--get-or-prompt-for-buffer)))
       (progn
         (with-current-buffer claude-code-buffer
+          ;; Send the command string, without return
           (claude-code--term-send-string claude-code-terminal-backend cmd)
+          ;; Give the terminal time to process the full command
+          (sit-for 0.1)
+          ;; Send Return
           (claude-code--term-send-string claude-code-terminal-backend (kbd "RET"))
           (display-buffer claude-code-buffer))
         claude-code-buffer)
