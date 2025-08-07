@@ -18,7 +18,7 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 - **Terminal Choice** - Works with both eat and vterm backends
 - **Fully Customizable** - Configure keybindings, notifications, and display preferences
 
-## Installation {#installation}
+## Installation
 
 ### Prerequisites
 
