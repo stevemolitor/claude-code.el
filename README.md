@@ -30,6 +30,7 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
     ```elisp
     (add-to-list 'package-archives '("nongnu" . "https://elpa.nongnu.org/nongnu/"))
     ```
+- Optional but recommended: [Monet](https://github.com/stevemolitor/monet) for IDE integration
 
 ### Using builtin use-package (Emacs 30+)
 
@@ -48,7 +49,11 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 ;; install claude-code.el
 (use-package claude-code :ensure t
   :vc (:url "https://github.com/stevemolitor/claude-code.el" :rev :newest)
-  :config (claude-code-mode)
+  ;; optional hook for Monet IDE integration:
+  :hook (claude-code-process-environment-functions . monet-start-server-function)
+  :config 
+  (monet-mode 1) ; optional IDE integration
+  (claude-code-mode)
   :bind-keymap ("C-c c" . claude-code-command-map))
 ```
 
@@ -73,9 +78,12 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 (use-package claude-code
   :straight (:type git :host github :repo "stevemolitor/claude-code.el" :branch "main" :depth 1
                    :files ("*.el" (:exclude "images/*")))
+   ;; optional hook for Monet IDE integration:
+  :hook (claude-code-process-environment-functions . monet-start-server-function)
   :bind-keymap
   ("C-c c" . claude-code-command-map) ;; or your preferred key
   :config
+  (monet-mode 1) ; optional IDE integration
   (claude-code-mode))
 ```
 
@@ -145,6 +153,16 @@ Sometimes you want to send a quick response to Claude without switching to the C
 - `claude-code-send-1` (`C-c c 1`) - send "1" to Claude, to choose option "1" in response to a Claude query
 - `claude-code-send-2` (`C-c c 2`) - send "2" to Claude
 - `claude-code-send-3` (`C-c c 3`) - send "3" to Claude
+
+## IDE Integration with [Monet](https://github.com/stevemolitor/monet)
+You can optionally use [Monet](https://github.com/stevemolitor/monet) for IDE integration. To integrate Monet with Claude do this (or the equivalent `use-package` declaration shown above):
+
+```elisp
+(add-hook 'claude-code-process-environment-functions #'monet-start-server-function)
+(monet-mode 1)
+```
+
+When Claude starts a new instance it will automatically start a Monet websocket server to listen to and send IDE comments to/from Claude. Current selection will automatically be sent to Claude, and Claude will show diffs in Emacs, use Emacs Monet tools to open files, get diagnostics, etc. See the [Monet](https://github.com/stevemolitor/monet) documentation for more details.
 
 ## Working with Multiple Claude Instances
 

@@ -49,6 +49,27 @@
   :type 'hook
   :group 'claude-code)
 
+(defcustom claude-code-process-environment-functions nil
+  "Abnormal hook for setting up and providing environment variables for Claude.
+
+Functions in this hook are called before starting Claude and should
+return a list of strings in the format \"VAR=VALUE\" to be added to the
+process environment. All results from all functions will be concatenated
+together.
+
+Each function receives two arguments: the Claude buffer name, and the
+directory Claude will be started in (typically the project root).
+
+Functions may perform setup operations (e.g., starting a websocket server)
+before returning the environment variables needed for Claude to connect.
+
+Example:
+  (add-hook \\='claude-code-process-environment-functions
+            (lambda (claude-buffer-name directory)
+              \\='(\"ANTHROPIC_API_KEY=sk-ant-...\"
+                \"ANTHROPIC_MODEL=claude-opus-4-20250514\")))"
+  :type 'hook)
+
 (defvar claude-code-event-hook nil
   "Hook run when Claude Code CLI triggers events.
 Functions in this hook are called with one argument: a plist with :type and
@@ -500,9 +521,7 @@ PROGRAM is the program to run in the terminal.
 SWITCHES are optional command-line arguments for PROGRAM."
   (claude-code--ensure-eat)
 
-  (let* ((trimmed-buffer-name (string-trim-right (string-trim buffer-name "\\*") "\\*"))
-         (process-environment (cons (format "CLAUDE_BUFFER_NAME=%s" buffer-name)
-                                    process-environment)))
+  (let* ((trimmed-buffer-name (string-trim-right (string-trim buffer-name "\\*") "\\*")))
     (apply #'eat-make trimmed-buffer-name program nil switches)))
 
 (cl-defmethod claude-code--term-send-string ((_backend (eql eat)) string)
@@ -679,7 +698,7 @@ _BACKEND is the terminal backend type (should be \\='eat)."
 (declare-function vterm-send-key "vterm" key &optional shift meta ctrl accept-proc-output)
 (declare-function vterm-send-string "vterm" (string &optional paste-p))
 
-;; Helper to ensure vterm is loaded
+;; Start Claude process in vterm
 (cl-defmethod claude-code--term-make ((_backend (eql vterm)) buffer-name program &optional switches)
   "Create a vterm terminal.
 
@@ -691,8 +710,6 @@ SWITCHES are optional command-line arguments for PROGRAM."
   (let* ((vterm-shell (if switches
                           (concat program " " (mapconcat #'identity switches " "))
                         program))
-         (process-environment (cons (format "CLAUDE_BUFFER_NAME=%s" buffer-name)
-                                    process-environment))
          (buffer (get-buffer-create buffer-name)))
     (with-current-buffer buffer
       ;; vterm needs to have an open window before starting the claude
@@ -703,18 +720,18 @@ SWITCHES are optional command-line arguments for PROGRAM."
       ;; `pop-to-buffer'. So, show the buffer, start vterm-mode (which
       ;; starts the vterm-shell claude process), and then hide the
       ;; buffer. We'll optionally re-open it later.
-      ;;
-      ;; [TODO] see if there's a cleaner way to do this.
       (pop-to-buffer buffer)
       (vterm-mode)
       (delete-window (get-buffer-window buffer))
       buffer)))
 
+;; Helper to ensure vterm is loaded
 (defun claude-code--ensure-vterm ()
   "Ensure vterm package is loaded."
-  (unless (featurep 'vterm)
-    (unless (require 'vterm nil t)
-      (error "The vterm package is required for vterm terminal backend. Please install it"))))
+  (unless (and
+           (require 'vterm nil t)
+           (featurep 'vterm))
+    (error "The vterm package is required for vterm terminal backend. Please install it")))
 
 (cl-defmethod claude-code--term-send-string ((_backend (eql vterm)) string)
   "Send STRING to vterm terminal.
@@ -1172,6 +1189,14 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
          ;; Set process-adaptive-read-buffering to nil to avoid flickering while Claude is processing
          (process-adaptive-read-buffering nil)
 
+         ;; Set environment variables by running all functions in the hook
+         (extra-env-variables (apply #'append
+                                     (mapcar (lambda (func)
+                                               (funcall func buffer-name dir))
+                                             claude-code-process-environment-functions)))
+         (process-environment (append `(,(format "CLAUDE_BUFFER_NAME=%s" buffer-name))
+                                      extra-env-variables
+                                      process-environment))
          ;; Start the terminal process
          (buffer (claude-code--term-make claude-code-terminal-backend buffer-name claude-code-program program-switches)))
 
@@ -1185,7 +1210,6 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
 
     ;; setup claude buffer
     (with-current-buffer buffer
-
       ;; Configure terminal with backend-specific settings
       (claude-code--term-configure claude-code-terminal-backend)
 
@@ -1392,9 +1416,9 @@ ARGS can contain additional arguments passed from the CLI."
   ;; from trying to evaluate leftover arguments as Lisp expressions
   (let ((json-data (when server-eval-args-left (pop server-eval-args-left)))
         (extra-args (prog1 server-eval-args-left (setq server-eval-args-left nil))))
-    (let ((message (list :type type 
-                         :buffer-name buffer-name 
-                         :json-data json-data 
+    (let ((message (list :type type
+                         :buffer-name buffer-name
+                         :json-data json-data
                          :args (append args extra-args))))
       (run-hook-with-args 'claude-code-event-hook message))))
 
