@@ -49,12 +49,17 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 ;; install claude-code.el
 (use-package claude-code :ensure t
   :vc (:url "https://github.com/stevemolitor/claude-code.el" :rev :newest)
-  ;; optional hook for Monet IDE integration:
-  :hook (claude-code-process-environment-functions . monet-start-server-function)
   :config 
-  (monet-mode 1) ; optional IDE integration
+  ;; optional IDE integration with Monet
+  (add-hook 'claude-code-process-environment-functions #'monet-start-server-function)
+  (monet-mode 1)
+  
   (claude-code-mode)
-  :bind-keymap ("C-c c" . claude-code-command-map))
+  :bind-keymap ("C-c c" . claude-code-command-map)
+  
+  ;; Optionally define a repeat map so that "M" will cycle thru Claude auto-accept/plan/confirm modes after invoking claude-code-cycle-mode / C-c M.
+  :bind
+  (:repeat-map my-claude-code-map ("M" . claude-code-cycle-mode)))
 ```
 
 ### Using straight.el
@@ -78,12 +83,16 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 (use-package claude-code
   :straight (:type git :host github :repo "stevemolitor/claude-code.el" :branch "main" :depth 1
                    :files ("*.el" (:exclude "images/*")))
-   ;; optional hook for Monet IDE integration:
-  :hook (claude-code-process-environment-functions . monet-start-server-function)
   :bind-keymap
   ("C-c c" . claude-code-command-map) ;; or your preferred key
+  ;; Optionally define a repeat map so that "M" will cycle thru Claude auto-accept/plan/confirm modes after invoking claude-code-cycle-mode / C-c M.
+  :bind
+  (:repeat-map my-claude-code-map ("M" . claude-code-cycle-mode)))
   :config
-  (monet-mode 1) ; optional IDE integration
+  ;; optional IDE integration with Monet
+  (add-hook 'claude-code-process-environment-functions #'monet-start-server-function)
+  (monet-mode 1)
+
   (claude-code-mode))
 ```
 
@@ -234,7 +243,7 @@ You can change this behavior by customizing `claude-code-newline-keybinding-styl
 - `claude-code-switch-to-buffer` (`C-c c b`) - Switch to the Claude buffer. With prefix arg (`C-u`), shows all Claude instances across all directories
 - `claude-code-select-buffer` (`C-c c B`) - Select and switch to a Claude buffer from all running instances across all projects and directories
 - `claude-code-toggle-read-only-mode` (`C-c c z`) - Toggle between read-only mode and normal mode in Claude buffer (useful for selecting and copying text)
-- `claude-code-cycle-mode` (`C-c c M`) - Send Shift-Tab to Claude to cycle between default mode, auto-accept edits mode, and plan mode
+- `claude-code-cycle-mode` (`C-c c M`) - Send Shift-Tab to Claude to cycle between default mode, auto-accept edits mode, and plan mode. See the installation section above to configure a repeat map so that you can cycle thru the modes with "M" after the initial invocation.
 
 - `claude-code-send-return` (`C-c c y`) - Send return key to Claude (useful for confirming with Claude without switching to the Claude REPL buffer) (useful for responding with "Yes"  to Claude)
 - `claude-code-send-escape` (`C-c c n`) - Send escape key to Claude (useful for saying "No" when Claude asks for confirmation without switching to the Claude REPL buffer)
