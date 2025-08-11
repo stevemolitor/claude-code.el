@@ -103,6 +103,12 @@ These are passed as SWITCHES parameters to `eat-make`."
   :type '(repeat string)
   :group 'claude-code)
 
+(defcustom claude-code-sandbox-program nil
+  "Program to run when starting Claude in sandbox mode.
+This must be set to the path of your Claude sandbox binary before use."
+  :type '(choice (const :tag "Not configured" nil) string)
+  :group 'claude-code)
+
 (defcustom claude-code-newline-keybinding-style 'newline-on-shift-return
   "Key binding style for entering newlines and sending messages.
 
@@ -362,6 +368,7 @@ for each directory across multiple invocations.")
     (define-key map (kbd "f") 'claude-code-fork)
     (define-key map (kbd "r") 'claude-code-send-region)
     (define-key map (kbd "s") 'claude-code-send-command)
+    (define-key map (kbd "S") 'claude-code-sandbox)
     (define-key map (kbd "t") 'claude-code-toggle)
     (define-key map (kbd "x") 'claude-code-send-command-with-context)
     (define-key map (kbd "y") 'claude-code-send-return)
@@ -381,6 +388,7 @@ for each directory across multiple invocations.")
   ["Claude Commands"
    ["Start/Stop Claude"
     ("c" "Start Claude" claude-code)
+    ("S" "Start Claude (sandbox)" claude-code-sandbox)
     ("d" "Start in directory" claude-code-start-in-directory)
     ("C" "Continue conversation" claude-code-continue)
     ("R" "Resume session" claude-code-resume)
@@ -1347,6 +1355,37 @@ for the project directory."
 
   ;; Call claude-code--start with force-prompt=t
   (claude-code--start arg nil t))
+
+;;;###autoload
+(defun claude-code-sandbox (&optional arg)
+  "Start Claude in sandbox mode using the configured sandbox binary.
+
+Uses the program specified in `claude-code-sandbox-program' to run Claude
+in a sandboxed environment.
+
+Prompts whether to add --dangerously-skip-permissions flag for bypassing
+Claude's permission checks.
+
+If current buffer belongs to a project start Claude in the project's root
+directory.  Otherwise start in the directory of the current buffer file,
+or the current value of `default-directory' if no project and no buffer
+file.
+
+With single prefix ARG (\\[universal-argument]), switch to buffer after
+creating.
+
+With double prefix ARG (\\[universal-argument] \\[universal-argument]),
+prompt for the project directory."
+  (interactive "P")
+  (unless claude-code-sandbox-program
+    (error "Claude-code-sandbox-program is not configured.  Please set it to your sandbox binary path"))
+  (let* ((skip-permissions (y-or-n-p "Skip permissions (--dangerously-skip-permissions)? "))
+         (claude-code-program claude-code-sandbox-program)
+         (claude-code-program-switches (if skip-permissions
+                                           (append claude-code-program-switches
+                                                   '("--dangerously-skip-permissions"))
+                                         claude-code-program-switches)))
+    (claude-code arg)))
 
 (defun claude-code--format-errors-at-point ()
   "Format errors at point as a string with file and line numbers.
