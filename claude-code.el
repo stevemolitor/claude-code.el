@@ -1,7 +1,7 @@
 ;;; claude-code.el --- Claude Code Emacs integration -*- lexical-binding: t; -*-
 
 ;; Author: Stephen Molitor <stevemolitor@gmail.com>
-;; Version: 0.2.0
+;; Version: 0.4.4
 ;; Package-Requires: ((emacs "30.0") (transient "0.9.3"))
 ;; Keywords: tools, ai
 ;; URL: https://github.com/stevemolitor/claude-code.el
@@ -180,6 +180,15 @@ When non-nil, claude-code will have the `no-delete-other-windows'
 parameter.  This parameter prevents the claude-code window from
 closing when calling `delete-other-windows' or any command that would
 launch a new full-screen buffer."
+  :type 'boolean
+  :group 'claude-code-window)
+
+(defcustom claude-code-toggle-auto-select nil
+  "Whether to automatically select the Claude buffer after toggling it open.
+
+When non-nil, `claude-code-toggle' will automatically switch to the
+Claude buffer when toggling it open.  When nil, the buffer will be
+displayed but focus will remain in the current buffer."
   :type 'boolean
   :group 'claude-code-window)
 
@@ -1626,7 +1635,10 @@ If the Claude buffer doesn't exist, create it."
             (delete-window (get-buffer-window claude-code-buffer))
           (let ((window (display-buffer claude-code-buffer '((display-buffer-below-selected)))))
             ;; set no-delete-other-windows parameter for claude-code window
-            (set-window-parameter window 'no-delete-other-windows claude-code-no-delete-other-windows)))
+            (set-window-parameter window 'no-delete-other-windows claude-code-no-delete-other-windows)
+            ;; Optionally select the window based on user preference
+            (when claude-code-toggle-auto-select
+              (select-window window))))
       (claude-code--show-not-running-message))))
 
 ;;;###autoload
