@@ -513,6 +513,12 @@ See the [Claude Code hooks documentation](https://docs.anthropic.com/en/docs/cla
 ;; when you run delete-other-windows or similar commands, keeping the
 ;; Claude buffer visible and accessible.
 (setq claude-code-no-delete-other-windows t)
+
+;; Automatically select the Claude buffer when toggling it open (default is nil)
+;; When set to t, claude-code-toggle will switch focus to the Claude buffer
+;; after displaying it. When nil, the buffer is displayed but focus remains
+;; in the current buffer.
+(setq claude-code-toggle-auto-select t)
 ```
 
 ### Customizing Window Position

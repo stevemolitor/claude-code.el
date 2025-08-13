@@ -7,6 +7,9 @@ All notable changes to claude-code.el will be documented in this file.
 ### Added
 - Claude Code hooks integration support for executing shell commands in response to tool calls (#70)
   - Allows custom automation via hook configurations in settings
+- New `claude-code-toggle-auto-select` customization option (#76)
+  - When set to `t`, automatically switches focus to Claude buffer after toggling it open
+  - Defaults to `nil` to preserve existing behavior
 
 ### Changed
 - Reorganized slash commands menu for better usability (#71)
