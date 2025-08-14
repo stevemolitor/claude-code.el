@@ -65,16 +65,17 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
   "Set up automatic buffer reverting after Claude edits."
   (interactive)
   (add-hook 'claude-code-event-hook 'claude-code-auto-revert-listener)
-  ;; Auto-save and redisplay images after org-babel execution
-  (add-hook 'org-babel-after-execute-hook (lambda () (save-buffer) (org-redisplay-inline-images)))
   (message "Claude auto-revert hook configured"))
 
 (defun remove-claude-auto-revert ()
   "Remove the auto-revert hook."
   (interactive)
   (remove-hook 'claude-code-event-hook 'claude-code-auto-revert-listener)
-  (remove-hook 'org-babel-after-execute-hook (lambda () (save-buffer) (org-redisplay-inline-images)))
   (message "Claude auto-revert hook removed"))
+
+;; For Org babel files, where cells are running, you may also want to enable
+;; (add-hook 'org-babel-after-execute-hook (lambda () (save-buffer) ))
+;; To Auto-save and redisplay images after org-babel execution
 
 (provide 'claude-code-auto-revert-hook)
 
