@@ -92,38 +92,29 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
   "Handle PreToolUse events with minibuffer permission prompts.
 MESSAGE contains hook data including tool name and arguments."
   (when (eq (plist-get message :type) 'pre-tool-use)
-    ;; Debug output
-    (message "[PreToolUse Debug] Message type: %s" (type-of message))
-    (message "[PreToolUse Debug] Message: %S" message)
-    (message "[PreToolUse Debug] json-data type: %s" (type-of (plist-get message :json-data)))
-    (message "[PreToolUse Debug] json-data value: %s" (plist-get message :json-data))
     
     (let* ((json-data (plist-get message :json-data))
            (parsed-data (when json-data
                           (condition-case err
                               (progn
-                                (message "[PreToolUse Debug] Attempting to parse JSON...")
-                                (let ((result (json-read-from-string json-data)))
-                                  (message "[PreToolUse Debug] Parsed data: %S" result)
-                                  result))
+                                (json-read-from-string json-data))
                             (error 
-                             (message "[PreToolUse Debug] Error parsing JSON: %s, JSON data: %s" err json-data)
                              nil))))
            (tool-name (or (when parsed-data 
-                            (let ((name (alist-get 'tool_name parsed-data)))
-                              (message "[PreToolUse Debug] tool_name from parsed data: %s" name)
-                              name))
+(alist-get 'tool_name parsed-data))
                           "Unknown Tool"))
            (tool-input (or (when parsed-data 
-                             (let ((input (alist-get 'tool_input parsed-data)))
-                               (message "[PreToolUse Debug] tool_input from parsed data: %S" input)
-                               input))
+(alist-get 'tool_input parsed-data))
                            "{}"))
-           (prompt-text (format "Claude wants to use %s with args: %s - Allow? (y/n/q): " 
+           (formatted-input (if (stringp tool-input)
+                                tool-input
+                              (with-temp-buffer
+                                (insert (json-encode tool-input))
+                                (json-pretty-print-buffer)
+                                (buffer-string))))
+           (prompt-text (format "Claude wants to use %s with args:\n%s\nAllow? (y/n/q): " 
                                tool-name 
-                               (if (stringp tool-input) 
-                                   tool-input 
-                                   (json-encode tool-input))))
+                               formatted-input))
            (response (read-char-choice prompt-text '(?y ?n ?q ?Y ?N ?Q)))
            (decision (cond 
                       ((memq response '(?y ?Y)) "allow")
