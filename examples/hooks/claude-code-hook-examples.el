@@ -120,6 +120,8 @@ MESSAGE contains hook data including tool name and arguments."
                       ((memq response '(?y ?Y)) "allow")
                       ((memq response '(?n ?N)) "deny") 
                       (t "ask"))))
+      ;; Clear the minibuffer
+      (message "")
       ;; Return JSON response for Claude Code
       (json-encode `((hookSpecificOutput . ((hookEventName . "PreToolUse")
                                            (permissionDecision . ,decision)
