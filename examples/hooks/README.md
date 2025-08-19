@@ -14,7 +14,7 @@ This directory contains examples for setting up Claude Code hooks with Emacs int
    ```bash
    export PATH="/path/to/claude-code.el/bin:$PATH"
    ```
-   Or add this line to your shell configuration file (~/.bashrc, ~/.zshrc, etc.)
+   Add this line to your bash configuration file (~/.bashrc, ~/.bash_profile, etc.) since Claude Code needs it available in the bash environment.
 
 2. **Update your `~/.claude/settings.json` based on `example_settings.json`:**
    ```json
@@ -93,10 +93,4 @@ Edit the `.el` files to customize hook behavior:
 - Create custom logging and monitoring
 - Add integration with other Emacs packages
 
-## Troubleshooting
-
-1. **Hook not triggering**: Check that the wrapper script is executable and the path is correct
-2. **JSON errors**: Ensure the wrapper script properly handles emacsclient output
-3. **Minibuffer not appearing**: Verify that claude-command.el is loaded and the handler functions are available
-
-For more details, see the main claude-code.el documentation.
+#

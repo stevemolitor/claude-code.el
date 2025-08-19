@@ -11,10 +11,6 @@ hook_type="$1"
 # Read the JSON input from stdin
 json_input=$(cat)
 
-# Debug: Log the raw JSON to a file
-echo "Raw JSON for $hook_type:" >> /tmp/claude-hook-debug.log
-echo "$json_input" >> /tmp/claude-hook-debug.log
-echo "---" >> /tmp/claude-hook-debug.log
 
 # Call emacsclient and get the response
 # Pass the JSON as an additional string argument that will be picked up by server-eval-args-left
