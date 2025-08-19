@@ -345,15 +345,20 @@ This enables interactive workflows like permission prompts where hooks can influ
 
 #### Setup
 
-Before configuring hooks, you need to start the Emacs server so that `emacsclient` can communicate with your Emacs instance:
+1. **Add the bin directory to your PATH** (required for hook wrapper script):
+   ```bash
+   export PATH="/path/to/claude-code.el/bin:$PATH"
+   ```
+   Add this to your bash configuration file (~/.bashrc, ~/.bash_profile, etc.) since Claude Code needs it in the bash environment.
 
-```elisp
-;; Start the Emacs server (add this to your init.el)
-(start-server)
+2. **Start the Emacs server** so that `emacsclient` can communicate with your Emacs instance:
+   ```elisp
+   ;; Start the Emacs server (add this to your init.el)
+   (start-server)
 
-;; Add your hook listeners using standard Emacs functions
-(add-hook 'claude-code-event-hook 'my-claude-hook-listener)
-```
+   ;; Add your hook listeners using standard Emacs functions
+   (add-hook 'claude-code-event-hook 'my-claude-hook-listener)
+   ```
 
 #### Custom Hook Listener
 
