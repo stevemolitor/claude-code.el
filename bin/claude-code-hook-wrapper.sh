@@ -11,8 +11,15 @@ hook_type="$1"
 # Read the JSON input from stdin
 json_input=$(cat)
 
+# Debug: Log the raw JSON to a file
+echo "Raw JSON for $hook_type:" >> /tmp/claude-hook-debug.log
+echo "$json_input" >> /tmp/claude-hook-debug.log
+echo "---" >> /tmp/claude-hook-debug.log
+
 # Call emacsclient and get the response
-response=$(emacsclient --eval "(claude-code-handle-hook '$hook_type \"$CLAUDE_BUFFER_NAME\")" <<< "$json_input" 2>/dev/null)
+# Pass the JSON as an additional string argument that will be picked up by server-eval-args-left
+# Don't escape the JSON - let emacsclient handle it as a literal string
+response=$(emacsclient --eval "(claude-code-handle-hook '$hook_type \"$CLAUDE_BUFFER_NAME\")" "$json_input" 2>/dev/null)
 
 # Check if the response looks like a JSON string (starts and ends with quotes)
 if [[ "$response" =~ ^\".*\"$ ]]; then

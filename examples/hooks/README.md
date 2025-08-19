@@ -4,18 +4,17 @@ This directory contains examples for setting up Claude Code hooks with Emacs int
 
 ## Files
 
-- `claude-code-hook-wrapper.sh` - Generic wrapper script for emacsclient hook integration
+- `../bin/claude-code-hook-wrapper.sh` - Generic wrapper script for emacsclient hook integration (moved to bin directory)
 - `example_settings.json` - Example settings.json with proper hook configuration
 - `claude-code-hook-examples.el` - Emacs Lisp hook handler examples
-- `claude-code-auto-revert-hook.el` - Auto-revert hook for file monitoring
 
 ## Quick Setup
 
-1. **Copy the wrapper script to a permanent location:**
+1. **Add the claude-code.el/bin directory to your PATH:**
    ```bash
-   cp claude-code-hook-wrapper.sh ~/.claude/hooks/
-   chmod +x ~/.claude/hooks/claude-code-hook-wrapper.sh
+   export PATH="/path/to/claude-code.el/bin:$PATH"
    ```
+   Or add this line to your shell configuration file (~/.bashrc, ~/.zshrc, etc.)
 
 2. **Update your `~/.claude/settings.json` based on `example_settings.json`:**
    ```json
@@ -25,7 +24,7 @@ This directory contains examples for setting up Claude Code hooks with Emacs int
          "matcher": "",
          "hooks": [{
            "type": "command", 
-           "command": "/home/user/.claude/hooks/claude-code-hook-wrapper.sh pre-tool-use"
+           "command": "claude-code-hook-wrapper.sh pre-tool-use"
          }]
        }]
      }

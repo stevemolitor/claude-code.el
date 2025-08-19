@@ -1470,13 +1470,10 @@ ARGS can contain additional arguments passed from the CLI."
                          :buffer-name buffer-name
                          :json-data json-data
                          :args (append args extra-args)))
-           (hook-results (run-hook-with-args-until-success 'claude-code-event-hook message)))
+           (hook-response (run-hook-with-args-until-success 'claude-code-event-hook message)))
 
-      ;; If a hook returned a JSON response, return it for emacsclient to output
-      ;; This allows any hook type to return control JSON to Claude Code
-      (or hook-results
-          ;; Default: return empty JSON for hooks that don't need responses
-          (unless (eq type 'pre-tool-use) nil)))))
+      ;; Return hook response if any, otherwise nil
+      hook-response)))
 
 (defun claude-code--notify (_terminal)
   "Notify the user that Claude has finished and is awaiting input.
