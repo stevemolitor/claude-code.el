@@ -197,7 +197,7 @@ MESSAGE contains hook data including tool name and arguments."
 ;;            "hooks": [
 ;;              {
 ;;                "type": "command",
-;;                "command": "emacsclient --eval \"(claude-code-handle-hook 'notification \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\""
+;;                "command": "claude-code-hook-wrapper notification"
 ;;              }
 ;;            ]
 ;;          }
@@ -208,7 +208,7 @@ MESSAGE contains hook data including tool name and arguments."
 ;;            "hooks": [
 ;;              {
 ;;                "type": "command",
-;;                "command": "emacsclient --eval \"(claude-code-handle-hook 'stop \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\""
+;;                "command": "claude-code-hook-wrapper stop"
 ;;              }
 ;;            ]
 ;;          }
@@ -227,7 +227,7 @@ MESSAGE contains hook data including tool name and arguments."
 ;;            "hooks": [
 ;;              {
 ;;                "type": "command",
-;;                "command": "emacsclient --eval \"(claude-code-handle-hook 'notification \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\" \"$PWD\" \"$(date -Iseconds)\" \"$$\""
+;;                "command": "claude-code-hook-wrapper notification \"$PWD\" \"$(date -Iseconds)\" \"$$\""
 ;;              }
 ;;            ]
 ;;          }
@@ -238,7 +238,7 @@ MESSAGE contains hook data including tool name and arguments."
 ;;            "hooks": [
 ;;              {
 ;;                "type": "command",
-;;                "command": "emacsclient --eval \"(claude-code-handle-hook 'stop \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\" \"$PWD\" \"$(date -Iseconds)\" \"$$\""
+;;                "command": "claude-code-hook-wrapper stop \"$PWD\" \"$(date -Iseconds)\" \"$$\""
 ;;              }
 ;;            ]
 ;;          }

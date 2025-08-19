@@ -7,15 +7,15 @@
 # The hook type is passed as the first argument (e.g., 'notification', 'pre-tool-use')
 
 hook_type="$1"
+shift  # Remove hook type from arguments to forward the rest
 
 # Read the JSON input from stdin
 json_input=$(cat)
 
-
 # Call emacsclient and get the response
 # Pass the JSON as an additional string argument that will be picked up by server-eval-args-left
-# Don't escape the JSON - let emacsclient handle it as a literal string
-response=$(emacsclient --eval "(claude-code-handle-hook '$hook_type \"$CLAUDE_BUFFER_NAME\")" "$json_input" 2>/dev/null)
+# Forward any additional arguments using "$@"
+response=$(emacsclient --eval "(claude-code-handle-hook '$hook_type \"$CLAUDE_BUFFER_NAME\")" "$json_input" "$@" 2>/dev/null)
 
 # Check if the response looks like a JSON string (starts and ends with quotes)
 if [[ "$response" =~ ^\".*\"$ ]]; then
