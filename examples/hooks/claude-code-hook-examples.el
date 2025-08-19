@@ -115,11 +115,12 @@ MESSAGE contains hook data including tool name and arguments."
            (prompt-text (format "Claude wants to use %s with args:\n%s\nAllow? (y/n/q): " 
                                tool-name 
                                formatted-input))
-           (response (read-char-choice prompt-text '(?y ?n ?q ?Y ?N ?Q)))
+           (response (read-char-choice prompt-text '(?y ?n ?q ?Y ?N ?Q ?\e)))
            (decision (cond 
                       ((memq response '(?y ?Y)) "allow")
-                      ((memq response '(?n ?N)) "deny") 
-                      (t "ask"))))
+                      ((memq response '(?n ?N)) "deny")
+                      ((memq response '(?q ?Q ?\e)) "ask")
+                      (t "deny"))))
       ;; Clear the minibuffer
       (message "")
       ;; Return JSON response for Claude Code

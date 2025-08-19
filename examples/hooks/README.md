@@ -70,14 +70,20 @@ Hooks can return JSON to control Claude Code behavior:
 
 ### PreToolUse Minibuffer Integration
 
-When Claude wants to use a tool, you'll see a minibuffer prompt:
+When Claude wants to use a tool, you'll see a minibuffer prompt with pretty-formatted JSON:
 ```
-Claude wants to use WebFetch with args: {"url": "https://example.com"} - Allow? (y/n/q):
+Claude wants to use WebFetch with args:
+{
+  "url": "https://example.com",
+  "prompt": "What are the main features?"
+}
+Allow? (y/n/q):
 ```
 
 - **y/Y**: Allow the tool use
 - **n/N**: Deny the tool use  
 - **q/Q**: Request UI confirmation (falls back to Claude's permission dialog)
+- **ESC**: Same as 'q' - request UI confirmation
 
 ## Customization
 
