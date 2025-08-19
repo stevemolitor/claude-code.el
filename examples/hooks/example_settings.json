@@ -10,7 +10,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "claude-code-hook-wrapper.sh notification"
+            "command": "claude-code-hook-wrapper notification"
           }
         ]
       }
@@ -21,7 +21,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "claude-code-hook-wrapper.sh stop"
+            "command": "claude-code-hook-wrapper stop"
           }
         ]
       }
@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "claude-code-hook-wrapper.sh pre-tool-use"
+            "command": "claude-code-hook-wrapper pre-tool-use"
           }
         ]
       }
@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "claude-code-hook-wrapper.sh post-tool-use"
+            "command": "claude-code-hook-wrapper post-tool-use"
           }
         ]
       }

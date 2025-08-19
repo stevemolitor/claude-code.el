@@ -4,7 +4,7 @@ This directory contains examples for setting up Claude Code hooks with Emacs int
 
 ## Files
 
-- `../bin/claude-code-hook-wrapper.sh` - Generic wrapper script for emacsclient hook integration (moved to bin directory)
+- `../bin/claude-code-hook-wrapper` - Generic wrapper script for emacsclient hook integration (moved to bin directory)
 - `example_settings.json` - Example settings.json with proper hook configuration
 - `claude-code-hook-examples.el` - Emacs Lisp hook handler examples
 
@@ -24,7 +24,7 @@ This directory contains examples for setting up Claude Code hooks with Emacs int
          "matcher": "",
          "hooks": [{
            "type": "command", 
-           "command": "claude-code-hook-wrapper.sh pre-tool-use"
+           "command": "claude-code-hook-wrapper pre-tool-use"
          }]
        }]
      }
