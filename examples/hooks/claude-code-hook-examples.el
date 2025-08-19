@@ -83,6 +83,37 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
                             json-data))
             (append-to-file (point-min) (point-max) org-file)))))))
 
+;;;; PreToolUse Interactive Permission Control Example
+;;
+;; This example shows how to intercept Claude's tool usage requests
+;; and provide interactive permission control via minibuffer prompts.
+
+(defun my-claude-pretooluse-handler (message)
+  "Handle PreToolUse events with minibuffer permission prompts.
+MESSAGE contains hook data including tool name and arguments."
+  (when (eq (plist-get message :type) 'pre-tool-use)
+    (let* ((json-data (plist-get message :json-data))
+           (parsed-data (when (and json-data (stringp json-data))
+                          (condition-case err
+                              (json-read-from-string json-data)
+                            (error 
+                             (message "Error parsing JSON: %s" err)
+                             nil))))
+           (tool-name (when parsed-data (alist-get 'tool_name parsed-data)))
+           (tool-input (when parsed-data (alist-get 'tool_input parsed-data)))
+           (prompt-text (format "Claude wants to use %s with args: %s - Allow? (y/n/q): " 
+                               tool-name tool-input))
+           (response (read-char-choice prompt-text '(?y ?n ?q ?Y ?N ?Q)))
+           (decision (cond 
+                      ((memq response '(?y ?Y)) "allow")
+                      ((memq response '(?n ?N)) "deny") 
+                      (t "ask"))))
+      ;; Return JSON response for Claude Code
+      (json-encode `((hookSpecificOutput . ((hookEventName . "PreToolUse")
+                                           (permissionDecision . ,decision)
+                                           (permissionDecisionReason . "User decision via minibuffer"))))))))
+
+
 
 ;;;; Hook Setup Examples
 
@@ -107,6 +138,13 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
   (add-hook 'claude-code-event-hook 'my-claude-notification-listener)
   (add-hook 'claude-code-event-hook 'my-claude-org-listener)
   (message "Claude hooks with org-mode integration configured"))
+
+(defun setup-claude-pretooluse-control ()
+  "Set up PreToolUse permission control via minibuffer."
+  (interactive)
+  (remove-hook 'claude-code-event-hook 'my-claude-pretooluse-handler)
+  (add-hook 'claude-code-event-hook 'my-claude-pretooluse-handler nil t)
+  (message "Claude PreToolUse permission control configured"))
 
 
 ;;;; Utility Functions
