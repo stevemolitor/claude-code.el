@@ -455,7 +455,17 @@ See the [Claude Code hooks documentation](https://docs.anthropic.com/en/docs/cla
   ;; If files aren't reliably auto-reverting after Claude makes changes,
   ;; disable file notification and use polling instead:
   (setq auto-revert-use-notify nil)
-  ``` 
+  ```
+- **Auto-revert with hooks**: For more control over buffer reverting, use the auto-revert hook example that listens for Claude's file edits:
+  ```elisp
+  ;; Load the auto-revert hook
+  (load-file "examples/hooks/claude-code-auto-revert-hook.el")
+  ;; Set up auto-revert (choose one):
+  (setup-claude-auto-revert)           ; Safe mode - skips modified buffers
+  (setup-claude-auto-revert-aggressive) ; Prompts to revert modified buffers
+  (setup-claude-auto-revert-org)       ; Special handling for org files
+  ```
+  Then configure the PostToolUse hook in your `~/.claude/settings.json` (see `examples/hooks/auto-revert-settings.json`) 
 
 ## Customization
 
@@ -744,4 +754,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 This project is licensed under the Apache License 2.0 - see the LICENSE file for details.
-
