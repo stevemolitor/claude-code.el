@@ -128,8 +128,8 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
                           (revert-buffer t t t)
                           (save-buffer)
                           (message "[Claude Revert] Simple revert and saved")))))))))))
-        (error
-             (message "[Claude Revert] Error: %s" err)))))
+      (error
+       (message "[Claude Revert] Error: %s" err)))))
 
 (defun claude-code--auto-revert-git-merge (file-path)
   "Perform git merge between buffer changes and file changes.
@@ -218,9 +218,7 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
             (message "[Claude Merge] Buffer contents replaced")
             ;; Mark as unmodified since we just synced with disk
             (save-buffer)
-            (message "[Claude Merge] Buffer saved")
-            (revert-buffer)
-            (message "[Claude Merge] Buffer reverted")))
+            (message "[Claude Merge] Buffer saved")))
       (kill-buffer temp-buffer)))
   
 
