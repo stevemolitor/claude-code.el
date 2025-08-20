@@ -87,46 +87,99 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
 ;;
 ;; This example shows how to intercept Claude's tool usage requests
 ;; and provide interactive permission control via minibuffer prompts.
+;;
+;; NOTE: Tools in Claude Code's permissions.allow list still trigger PreToolUse hooks.
+;; This is a known limitation - see https://github.com/anthropics/claude-code/issues/4142
+;; 
+;; This handler works around the limitation by duplicating Claude Code's internal permission 
+;; logic - reading the same settings files and applying the same pattern matching rules.
+;; While this duplication is not ideal, it's necessary because:
+;; 1. Claude Code doesn't expose its permission decisions to hooks
+;; 2. The PreToolUse hook fires before Claude Code's internal permission check
+;; 3. Without this workaround, users get redundant permission prompts for already-allowed tools
+;;
+;; LIMITATIONS: This workaround only checks file-based permissions and doesn't respect 
+;; in-session permissions granted during the current Claude Code session.
+
+(defcustom my-claude-check-allowlist t
+  "Whether to check Claude Code settings files for allowed tools.
+When non-nil, tools in the permissions.allow lists will be auto-approved.
+When nil, all tools will prompt for permission."
+  :type 'boolean
+  :group 'claude-code)
 
 (defun my-claude-pretooluse-handler (message)
   "Handle PreToolUse events with minibuffer permission prompts.
-MESSAGE contains hook data including tool name and arguments."
+MESSAGE contains hook data including tool name and arguments.
+
+If `my-claude-check-allowlist` is non-nil, checks Claude Code settings files
+for allowed tools and auto-approves them. Otherwise, prompts for all tools."
   (when (eq (plist-get message :type) 'pre-tool-use)
     
     (let* ((json-data (plist-get message :json-data))
            (parsed-data (when json-data
                           (condition-case err
-                              (progn
-                                (json-read-from-string json-data))
-                            (error 
-                             nil))))
+                              (json-read-from-string json-data)
+                            (error nil))))
            (tool-name (or (when parsed-data 
-(alist-get 'tool_name parsed-data))
+                            (alist-get 'tool_name parsed-data))
                           "Unknown Tool"))
            (tool-input (or (when parsed-data 
-(alist-get 'tool_input parsed-data))
+                             (alist-get 'tool_input parsed-data))
                            "{}"))
-           (formatted-input (if (stringp tool-input)
-                                tool-input
-                              (with-temp-buffer
-                                (insert (json-encode tool-input))
-                                (json-pretty-print-buffer)
-                                (buffer-string))))
-           (prompt-text (format "Claude wants to use %s with args:\n%s\nAllow? (y/n/q): " 
-                               tool-name 
-                               formatted-input))
-           (response (read-char-choice prompt-text '(?y ?n ?q ?Y ?N ?Q ?\e)))
-           (decision (cond 
-                      ((memq response '(?y ?Y)) "allow")
-                      ((memq response '(?n ?N)) "deny")
-                      ((memq response '(?q ?Q ?\e)) "ask")
-                      (t "deny"))))
+           (tool-allowed-p (when my-claude-check-allowlist
+                             (let ((all-allowed '())
+                                   (files-to-check (list (expand-file-name "~/.claude/settings.json")
+                                                        (expand-file-name ".claude/settings.json" default-directory)
+                                                         (expand-file-name ".claude/settings.local.json" default-directory))))
+                               (dolist (file files-to-check)
+                                 (when (file-exists-p file)
+                                   (condition-case err
+                                       (let* ((settings-content (with-temp-buffer
+                                                                  (insert-file-contents file)
+                                                                  (buffer-string)))
+                                              (settings-json (json-read-from-string settings-content))
+                                              (permissions (alist-get 'permissions settings-json))
+                                              (allow-list (alist-get 'allow permissions)))
+                                         (when (arrayp allow-list)
+                                           (setq all-allowed (append all-allowed (append allow-list nil)))))
+                                     (error nil))))
+                               ;; Check if current tool matches any allowed pattern
+                               (cl-some (lambda (allowed-pattern)
+                                          (or (string= tool-name allowed-pattern)
+                                              (string-prefix-p (concat tool-name "(") allowed-pattern)
+                                              (string-match-p (regexp-quote allowed-pattern) tool-name)))
+                                        (delete-dups all-allowed))))))
+      
+      ;; Use the single allowlist check result
+      (if tool-allowed-p
+          ;; Tool is allowed, auto-approve
+          (json-encode `((hookSpecificOutput . ((hookEventName . "PreToolUse")
+                                               (permissionDecision . "allow")
+                                               (permissionDecisionReason . "Tool in allowed list")))))
+        ;; Tool not in allowed list or allowlist checking disabled, prompt user
+        (let* ((formatted-input (if (stringp tool-input)
+                                    tool-input
+                                  (with-temp-buffer
+                                    (insert (json-encode tool-input))
+                                    (json-pretty-print-buffer)
+                                    (buffer-string))))
+               (prompt-text (format "Claude wants to use %s with args:\n%s\nAllow? (y/n/q): " 
+                                   tool-name 
+                                   formatted-input))
+               (response (read-char-choice prompt-text '(?y ?n ?q ?Y ?N ?Q ?\e)))
+               (decision (cond 
+                          ((memq response '(?y ?Y)) "allow")
+                          ((memq response '(?n ?N)) "deny")
+                          ((memq response '(?q ?Q ?\e)) "ask")
+                          (t "deny"))))
       ;; Clear the minibuffer
       (message "")
       ;; Return JSON response for Claude Code
       (json-encode `((hookSpecificOutput . ((hookEventName . "PreToolUse")
                                            (permissionDecision . ,decision)
-                                           (permissionDecisionReason . "User decision via minibuffer"))))))))
+                                           (permissionDecisionReason . "User decision via minibuffer"))))))))))
+
 
 
 
@@ -155,7 +208,8 @@ MESSAGE contains hook data including tool name and arguments."
   (message "Claude hooks with org-mode integration configured"))
 
 (defun setup-claude-pretooluse-control ()
-  "Set up PreToolUse permission control via minibuffer."
+  "Set up PreToolUse permission control via minibuffer.
+Uses the single handler that respects `my-claude-check-allowlist` setting."
   (interactive)
   (remove-hook 'claude-code-event-hook 'my-claude-pretooluse-handler)
   (add-hook 'claude-code-event-hook 'my-claude-pretooluse-handler nil t)
