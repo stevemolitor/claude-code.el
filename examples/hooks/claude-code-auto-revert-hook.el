@@ -53,7 +53,7 @@ three-way merges between user changes, file state, and Claude's changes.")
 Also auto-saves any open buffers for the target file to prevent conflicts.
 MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
   (when (eq (plist-get message :type) 'pre-tool-use)
-      (condition-case err
+    (condition-case err
         (let* ((json-data (plist-get message :json-data))
                (parsed-data (when (and json-data (stringp json-data))
                               (condition-case parse-err
@@ -64,7 +64,7 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
                (tool-name (when parsed-data (alist-get 'tool_name parsed-data)))
                (tool-input (when parsed-data (alist-get 'tool_input parsed-data))))
           
-          (when (and tool-name (member tool-name '("Edit" "Write" "MultiEdit" "NotebookEdit")))
+          (when (and tool-name (member tool-name '("Edit" "Write" "MultiEdit" "NotebookEdit" "Read" "Update")))
             (let ((file-path (or (alist-get 'file_path tool-input)
                                  (alist-get 'notebook_path tool-input))))
               
@@ -95,11 +95,13 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
   "Auto-revert hook with git-merge or simple revert.
 MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
   (when (eq (plist-get message :type) 'post-tool-use)
+    (message "[Claude Post-Hook] Starting post-tool-use hook")
     (condition-case err
         (let* ((json-object (json-read-from-string (plist-get message :json-data)))
                (tool-name (cdr (assoc 'tool_name json-object)))
                (params (cdr (assoc 'tool_input json-object))))
           
+          (message "[Claude Post-Hook] Tool: %s" tool-name)
           (when (member tool-name '("Edit" "Write" "MultiEdit" "NotebookEdit"))
             (let ((file-path (or (cdr (assoc 'file_path params))
                                  (cdr (assoc 'notebook_path params)))))
@@ -109,30 +111,27 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
                 
                 (let ((target-buffer (find-buffer-visiting file-path)))
                   (when target-buffer
+                    (message "[Claude Post-Hook] Found buffer for %s" file-path)
                     (with-current-buffer target-buffer
-                      (let ((saved-point (point))
-                            (saved-line (line-number-at-pos))
-                            (saved-column (current-column))
-                            (has-changes (buffer-modified-p)))
+                      (let ((has-changes (buffer-modified-p)))
+                        (message "[Claude Post-Hook] Buffer modified: %s" has-changes)
                         
                         (cond
-                         ;; No changes or revert strategy - simple revert
-                         ((or (not has-changes) 
-                              (eq claude-code-revert-strategy :revert))
-                          (revert-buffer t t t)
-                          (goto-char (point-min))
-                          (forward-line (1- saved-line))
-                          (move-to-column saved-column)
-                          (message "[Claude Revert] Reverted - line %d, col %d" saved-line saved-column))
+                         ;; Use git-merge strategy when configured
+                         ((equal claude-code-revert-strategy :git-merge)
+                          (message "[Claude Post-Hook] Using git-merge strategy for %s" file-path)
+                          (claude-code--auto-revert-git-merge file-path)
+                          (message "[Claude Post-Hook] Git-merge completed and saved"))
                          
-                         ;; Has changes and git-merge strategy
-                         ((eq claude-code-revert-strategy :git-merge)
-                          (claude-code--auto-revert-git-merge file-path saved-point saved-line saved-column)))))))))
-      
-      (error
-       (message "[Claude Revert] Error: %s" err)))))))
+                         ;; Fall back to simple revert for :revert strategy
+                         (t
+                          (revert-buffer t t t)
+                          (save-buffer)
+                          (message "[Claude Revert] Simple revert and saved")))))))))))
+        (error
+             (message "[Claude Revert] Error: %s" err)))))
 
-(defun claude-code--auto-revert-git-merge (file-path saved-point saved-line saved-column)
+(defun claude-code--auto-revert-git-merge (file-path)
   "Perform git merge between buffer changes and file changes.
   
   ARCHITECTURE:
@@ -177,18 +176,17 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
                 (copy-file temp-user-file temp-result-file t)
                 
                 (let ((exit-code (call-process "git" nil nil nil
-                                             "merge-file"
-                                             temp-result-file  ; Current (user's version)
-                                             temp-base-file     ; Base (ORIGINAL!)
-                                             temp-claude-file))) ; Other (Claude's version)
-                  
-                  (process-merge-result temp-result-file file-path exit-code 
-                                        saved-point saved-line)))
+                                               "merge-file"
+                                               temp-result-file  ; Current (user's version)
+                                               temp-base-file     ; Base (ORIGINAL!)
+                                               temp-claude-file))) ; Other (Claude's version)
+
+                  (process-merge-result temp-result-file file-path exit-code)))
             
             ;; No base content - fallback to simple revert
             (revert-buffer t t t)
-            (goto-char (min saved-point (point-max)))
-            (message "[Claude Revert] Simple revert (no base) - line %d" saved-line)))
+            (save-buffer)
+            (message "[Claude Revert] Simple revert (no base) and saved")))
       
       ;; Cleanup temp files
       (when (file-exists-p temp-base-file)
@@ -202,21 +200,34 @@ MESSAGE is a plist with :type, :buffer-name, :json-data, and :args keys."
       ;; Clean up base after use
       (remhash file-path claude-code--file-bases))))
 
-(defun process-merge-result (result-file file-path exit-code saved-point saved-line)
+(defun process-merge-result (result-file file-path exit-code)
   "Process the merge result and update the buffer."
-  ;; Copy the merged result back to the actual file
-  (copy-file result-file file-path t)
+  ;; Create temp buffer with merge result
+  (let ((temp-buffer (generate-new-buffer "*claude-merge-result*")))
+    (unwind-protect
+        (progn
+          ;; Load merge result into temp buffer
+          (with-current-buffer temp-buffer
+            (insert-file-contents result-file))
+          ;; Replace file buffer contents with temp buffer contents
+          (with-current-buffer (find-buffer-visiting file-path)
+            (message "[Claude Merge] About to replace-buffer-contents")
+            ;; Update file modification time to prevent "changed on disc" warning
+            (set-visited-file-modtime)
+            (replace-buffer-contents temp-buffer)
+            (message "[Claude Merge] Buffer contents replaced")
+            ;; Mark as unmodified since we just synced with disk
+            (save-buffer)
+            (message "[Claude Merge] Buffer saved")
+            (revert-buffer)
+            (message "[Claude Merge] Buffer reverted")))
+      (kill-buffer temp-buffer)))
   
-  ;; Revert buffer from file (which has merge result)
-  (revert-buffer t t t)
-  
-  ;; Restore cursor position
-  (goto-char (min saved-point (point-max)))
-  
+
   ;; Report result
   (if (= exit-code 0)
-      (message "[Claude Revert] Git merge successful - line %d" saved-line)
-    (message "[Claude Revert] Git merge with conflicts - exit code %d" exit-code)))
+      (message "[Claude Revert] Git merge successful and saved")
+    (message "[Claude Revert] Git merge with conflicts and saved - exit code %d" exit-code)))
 
 (defun setup-claude-auto-revert (&optional strategy auto-save)
   "Set up auto-revert hook with pre and post listeners.
