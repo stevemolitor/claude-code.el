@@ -332,17 +332,33 @@ See [`examples/hooks/claude-code-hook-examples.el`](examples/hooks/claude-code-h
 - `claude-code-event-hook` - Emacs hook run when Claude Code CLI triggers events
 - `claude-code-handle-hook` - **Unified entry point** for all Claude Code CLI hooks. Call this from your CLI hooks with `(type buffer-name &rest args)` and JSON data as additional emacsclient arguments
 
+#### JSON Response System
+
+Hooks can return structured JSON data to control Claude Code behavior using `run-hook-with-args-until-success`:
+
+1. **Multiple handlers**: Register multiple functions on `claude-code-event-hook`
+2. **Sequential execution**: Functions are called in order with the message data  
+3. **First response wins**: Execution stops when a function returns non-nil JSON
+4. **Bidirectional communication**: The JSON response is sent back to Claude Code CLI
+
+This enables interactive workflows like permission prompts where hooks can influence Claude's behavior.
+
 #### Setup
 
-Before configuring hooks, you need to start the Emacs server so that `emacsclient` can communicate with your Emacs instance:
+1. **Add the bin directory to your PATH** (required for hook wrapper script):
+   ```bash
+   export PATH="/path/to/claude-code.el/bin:$PATH"
+   ```
+   Add this to your bash configuration file (~/.bashrc, ~/.bash_profile, etc.) since Claude Code needs it in the bash environment.
 
-```elisp
-;; Start the Emacs server (add this to your init.el)
-(start-server)
+2. **Start the Emacs server** so that `emacsclient` can communicate with your Emacs instance:
+   ```elisp
+   ;; Start the Emacs server (add this to your init.el)
+   (start-server)
 
-;; Add your hook listeners using standard Emacs functions
-(add-hook 'claude-code-event-hook 'my-claude-hook-listener)
-```
+   ;; Add your hook listeners using standard Emacs functions
+   (add-hook 'claude-code-event-hook 'my-claude-hook-listener)
+   ```
 
 #### Custom Hook Listener
 
@@ -439,7 +455,17 @@ See the [Claude Code hooks documentation](https://docs.anthropic.com/en/docs/cla
   ;; If files aren't reliably auto-reverting after Claude makes changes,
   ;; disable file notification and use polling instead:
   (setq auto-revert-use-notify nil)
-  ``` 
+  ```
+- **Auto-revert with hooks**: For more control over buffer reverting, use the auto-revert hook example that listens for Claude's file edits:
+  ```elisp
+  ;; Load the auto-revert hook
+  (load-file "examples/hooks/claude-code-auto-revert-hook.el")
+  ;; Set up auto-revert (choose one):
+  (setup-claude-auto-revert)           ; Safe mode - skips modified buffers
+  (setup-claude-auto-revert-aggressive) ; Prompts to revert modified buffers
+  (setup-claude-auto-revert-org)       ; Special handling for org files
+  ```
+  Then configure the PostToolUse hook in your `~/.claude/settings.json` (see `examples/hooks/auto-revert-settings.json`) 
 
 ## Customization
 
@@ -728,4 +754,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 This project is licensed under the Apache License 2.0 - see the LICENSE file for details.
-

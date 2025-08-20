@@ -10,7 +10,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "emacsclient --eval \"(claude-code-handle-hook 'notification \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\""
+            "command": "claude-code-hook-wrapper notification"
           }
         ]
       }
@@ -21,7 +21,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "emacsclient --eval \"(claude-code-handle-hook 'stop \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\""
+            "command": "claude-code-hook-wrapper stop"
           }
         ]
       }
@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "emacsclient --eval \"(claude-code-handle-hook 'pre-tool-use \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\""
+            "command": "claude-code-hook-wrapper pre-tool-use"
           }
         ]
       }
@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "emacsclient --eval \"(claude-code-handle-hook 'post-tool-use \\\"$CLAUDE_BUFFER_NAME\\\")\" \"$(cat)\""
+            "command": "claude-code-hook-wrapper post-tool-use"
           }
         ]
       }

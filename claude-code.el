@@ -1464,11 +1464,16 @@ ARGS can contain additional arguments passed from the CLI."
   ;; from trying to evaluate leftover arguments as Lisp expressions
   (let ((json-data (when server-eval-args-left (pop server-eval-args-left)))
         (extra-args (prog1 server-eval-args-left (setq server-eval-args-left nil))))
-    (let ((message (list :type type
+    
+    ;; Run the event hook and potentially get a JSON response
+    (let* ((message (list :type type
                          :buffer-name buffer-name
                          :json-data json-data
-                         :args (append args extra-args))))
-      (run-hook-with-args 'claude-code-event-hook message))))
+                         :args (append args extra-args)))
+           (hook-response (run-hook-with-args-until-success 'claude-code-event-hook message)))
+
+      ;; Return hook response if any, otherwise nil
+      hook-response)))
 
 (defun claude-code--notify (_terminal)
   "Notify the user that Claude has finished and is awaiting input.
