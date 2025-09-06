@@ -1199,9 +1199,24 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
          ;; Prompt for instance name (only if instances exist, or force-prompt is true)
          (instance-name (claude-code--prompt-for-instance-name dir existing-instance-names force-prompt))
          (buffer-name (claude-code--buffer-name instance-name))
-         (program-switches (if extra-switches
-                               (append claude-code-program-switches extra-switches)
-                             claude-code-program-switches))
+         ;; Store original program for validation
+         (original-program claude-code-program)
+         ;; Check if we should use direnv
+         (use-direnv (and (executable-find "direnv")
+                         (file-exists-p (expand-file-name ".envrc" dir))))
+         ;; Set up program and switches based on direnv availability
+         (program-switches (if use-direnv
+                              ;; When using direnv: direnv exec <dir> claude <original-switches>
+                              (append (list "exec" dir claude-code-program)
+                                     (if extra-switches
+                                         (append claude-code-program-switches extra-switches)
+                                       claude-code-program-switches))
+                            ;; Normal case: just use the switches
+                            (if extra-switches
+                                (append claude-code-program-switches extra-switches)
+                              claude-code-program-switches)))
+         ;; Set the actual program to run
+         (claude-code-program (if use-direnv "direnv" claude-code-program))
 
          ;; Set process-adaptive-read-buffering to nil to avoid flickering while Claude is processing
          (process-adaptive-read-buffering nil)
@@ -1218,8 +1233,8 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
          (buffer (claude-code--term-make claude-code-terminal-backend buffer-name claude-code-program program-switches)))
 
     ;; Check if the claude program is available
-    (unless (executable-find claude-code-program)
-      (error "Claude Code program '%s' not found in PATH" claude-code-program))
+    (unless (executable-find original-program)
+      (error "Claude Code program '%s' not found in PATH" original-program))
 
     ;; Check if buffer was successfully created
     (unless (buffer-live-p buffer)
