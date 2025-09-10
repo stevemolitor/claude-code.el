@@ -1173,6 +1173,17 @@ Returns the selected Claude buffer or nil."
     (claude-code--show-not-running-message)
     nil))
 
+
+(defun claude-code-display-buffer-below (buffer)
+  "Displays the claude code window below the currently selected one"
+  (display-buffer buffer '((display-buffer-below-selected))))
+
+(defcustom claude-code-display-window-fn #'claude-code-display-buffer-below
+  "Function used to display the claude code window.
+
+Must be callable with a buffer as its parameter."
+  :type 'function)
+
 (defun claude-code--start (arg extra-switches &optional force-prompt force-switch-to-buffer)
   "Start Claude with given command-line EXTRA-SWITCHES.
 
@@ -1263,7 +1274,7 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
       (setq-local vertical-scroll-bar nil)
 
       ;; Display buffer, setting window parameters
-      (let ((window (display-buffer buffer '((display-buffer-below-selected)))))
+      (let ((window (funcall claude-code-display-window-fn buffer)))
         (when window
           ;; turn off fringes and margins in the Claude buffer
           (set-window-parameter window 'left-margin-width 0)
@@ -1464,7 +1475,7 @@ ARGS can contain additional arguments passed from the CLI."
   ;; from trying to evaluate leftover arguments as Lisp expressions
   (let ((json-data (when server-eval-args-left (pop server-eval-args-left)))
         (extra-args (prog1 server-eval-args-left (setq server-eval-args-left nil))))
-    
+
     ;; Run the event hook and potentially get a JSON response
     (let* ((message (list :type type
                          :buffer-name buffer-name
