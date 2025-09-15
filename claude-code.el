@@ -1757,8 +1757,8 @@ With prefix ARG, switch to the Claude buffer after sending CMD."
   (let* ((file-ref (if (use-region-p)
                        (claude-code--format-file-reference
                         nil
-                        (line-number-at-pos (region-beginning))
-                        (line-number-at-pos (region-end)))
+                        (line-number-at-pos (region-beginning) t)
+                        (line-number-at-pos (region-end) t))
                      (claude-code--format-file-reference)))
          (cmd-with-context (if file-ref
                                (format "%s\n%s" cmd file-ref)
