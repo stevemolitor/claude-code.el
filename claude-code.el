@@ -1175,7 +1175,7 @@ Returns the selected Claude buffer or nil."
 
 
 (defun claude-code-display-buffer-below (buffer)
-  "Displays the claude code window below the currently selected one"
+  "Displays the claude code BUFFER below the currently selected one."
   (display-buffer buffer '((display-buffer-below-selected))))
 
 (defcustom claude-code-display-window-fn #'claude-code-display-buffer-below
