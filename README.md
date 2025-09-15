@@ -574,7 +574,7 @@ You can customize how Claude Code windows are displayed by setting `claude-code-
 
 #### Using display-buffer-alist
 
-You can also control how the Claude Code window appears using Emacs' `display-buffer-alist`. For example, to make the Claude window appear in a persistent side window on the right side of your screen with 33% width:
+You can also control how the Claude Code window appears using Emacs' `display-buffer-alist`. For example, to make the Claude window appear in a persistent side window on the right side of your screen that is 90 characters wide:
 
 ```elisp
 (add-to-list 'display-buffer-alist

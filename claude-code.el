@@ -1,7 +1,7 @@
 ;;; claude-code.el --- Claude Code Emacs integration -*- lexical-binding: t; -*-
 
 ;; Author: Stephen Molitor <stevemolitor@gmail.com>
-;; Version: 0.4.4
+;; Version: 0.4.5
 ;; Package-Requires: ((emacs "30.0") (transient "0.9.3"))
 ;; Keywords: tools, ai
 ;; URL: https://github.com/stevemolitor/claude-code.el
@@ -1147,7 +1147,7 @@ FILE-NAME is the file path.  If nil, get from current buffer.
 LINE-START is the starting line number.  If nil, use current line.
 LINE-END is the ending line number for a range.  If nil, format single line."
   (let ((file (or file-name (claude-code--get-buffer-file-name)))
-        (start (or line-start (line-number-at-pos)))
+        (start (or line-start (line-number-at-pos nil t)))
         (end line-end))
     (when file
       (if end

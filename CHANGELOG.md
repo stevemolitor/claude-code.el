@@ -2,6 +2,16 @@
 
 All notable changes to claude-code.el will be documented in this file.
 
+## [0.4.5]
+
+### Added
+- New `claude-code-display-window-fn` customization option (#100) to control display of Claude COde buffer
+
+### Changed
+
+### Fixed
+- Fixed bug reporting line position when narrowring is in effect (#74)
+
 ## [0.4.4]
 
 ### Added
