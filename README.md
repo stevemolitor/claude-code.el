@@ -549,7 +549,32 @@ See the [Claude Code hooks documentation](https://docs.anthropic.com/en/docs/cla
 
 ### Customizing Window Position
 
-You can control how the Claude Code window appears using Emacs' `display-buffer-alist`. For example, to make the Claude window appear in a persistent side window on the right side of your screen with 33% width:
+#### Using the Display Window Function
+
+You can customize how Claude Code windows are displayed by setting `claude-code-display-window-fn`. This function is called with the Claude buffer and should display it appropriately:
+
+```elisp
+;; Use display-buffer with custom configuration
+(setq claude-code-display-window-fn #'display-buffer)
+
+;; Example: Display in a side window using popwin
+(setq claude-code-display-window-fn #'display-buffer)
+(let ((buffer-regexp "^\\*claude:.+:.+\\*$"))
+  (push `(,buffer-regexp :regexp t :width 78 :position left :stick t :noselect nil :dedicated nil)
+        popwin:special-display-config))
+
+;; Example: Always display in a side window on the right
+(defun my-claude-display-right (buffer)
+  "Display Claude buffer in right side window."
+  (display-buffer buffer '((display-buffer-in-side-window)
+                           (side . right)
+                           (window-width . 90))))
+(setq claude-code-display-window-fn #'my-claude-display-right)
+```
+
+#### Using display-buffer-alist
+
+You can also control how the Claude Code window appears using Emacs' `display-buffer-alist`. For example, to make the Claude window appear in a persistent side window on the right side of your screen with 33% width:
 
 ```elisp
 (add-to-list 'display-buffer-alist
