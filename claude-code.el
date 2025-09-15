@@ -790,6 +790,17 @@ _BACKEND is the terminal backend type (should be \\='vterm)."
 _BACKEND is the terminal backend type (should be \\='vterm)."
   vterm-copy-mode)
 
+(defun claude-code--vterm-window-scroll-advice (&rest _)
+  "Turn on vterm-copy-mode when scrolling in vterm claude buffer.
+
+This allows the user to scroll backwards while the LLM is outputing new
+text."
+  (advice-add 'set-window-vscroll :after
+              (when (and (claude-code--buffer-p (current-buffer)) (eq major-mode 'vterm-mode))
+                (if (> (window-end) (buffer-size))
+                    (when vterm-copy-mode (claude-code-exit-read-only-mode))
+                  (claude-code-read-only-mode)))))
+
 (cl-defmethod claude-code--term-configure ((_backend (eql vterm)))
   "Configure vterm terminal in current buffer.
 
@@ -817,7 +828,9 @@ _BACKEND is the terminal backend type (should be \\='vterm)."
   ;; Set up bell detection advice
   (advice-add 'vterm--filter :around #'claude-code--vterm-bell-detector)
   ;; Set up multi-line buffering to prevent flickering
-  (advice-add 'vterm--filter :around #'claude-code--vterm-multiline-buffer-filter))
+  (advice-add 'vterm--filter :around #'claude-code--vterm-multiline-buffer-filter)
+  ;; Allow scrolling in Claude buffer when LLM is streaming a response
+  (advice-add 'set-window-vscroll :after #'claude-code--adjust-window-size-advice))
 
 (cl-defmethod claude-code--term-customize-faces ((_backend (eql vterm)))
   "Apply face customizations for vterm terminal.
