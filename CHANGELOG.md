@@ -2,6 +2,11 @@
 
 All notable changes to claude-code.el will be documented in this file.
 
+## Unreleased
+
+### Changed
+- Use `inheritenv` to make sure claude-code receives buffer-local process-environment in the vterm backend
+
 ## [0.4.5]
 
 ### Added

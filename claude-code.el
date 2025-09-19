@@ -2,7 +2,7 @@
 
 ;; Author: Stephen Molitor <stevemolitor@gmail.com>
 ;; Version: 0.4.5
-;; Package-Requires: ((emacs "30.0") (transient "0.9.3"))
+;; Package-Requires: ((emacs "30.0") (transient "0.9.3") (inheritenv "0.2"))
 ;; Keywords: tools, ai
 ;; URL: https://github.com/stevemolitor/claude-code.el
 
@@ -16,6 +16,7 @@
 (require 'transient)
 (require 'project)
 (require 'cl-lib)
+(require 'inheritenv)
 
 ;;;; Customization options
 (defgroup claude-code nil
@@ -728,19 +729,21 @@ SWITCHES are optional command-line arguments for PROGRAM."
                           (concat program " " (mapconcat #'identity switches " "))
                         program))
          (buffer (get-buffer-create buffer-name)))
-    (with-current-buffer buffer
-      ;; vterm needs to have an open window before starting the claude
-      ;; process; otherwise Claude doesn't seem to know how wide its
-      ;; terminal window is and it draws the input box too wide. But
-      ;; the user may not want to pop to the buffer. For some reason
-      ;; `display-buffer' also leads to wonky results, it has to be
-      ;; `pop-to-buffer'. So, show the buffer, start vterm-mode (which
-      ;; starts the vterm-shell claude process), and then hide the
-      ;; buffer. We'll optionally re-open it later.
-      (pop-to-buffer buffer)
-      (vterm-mode)
-      (delete-window (get-buffer-window buffer))
-      buffer)))
+    (inheritenv
+     ;; Use the current environment (even if buffer-local) when starting vterm in the new buffer
+     (with-current-buffer buffer
+        ;; vterm needs to have an open window before starting the claude
+        ;; process; otherwise Claude doesn't seem to know how wide its
+        ;; terminal window is and it draws the input box too wide. But
+        ;; the user may not want to pop to the buffer. For some reason
+        ;; `display-buffer' also leads to wonky results, it has to be
+        ;; `pop-to-buffer'. So, show the buffer, start vterm-mode (which
+        ;; starts the vterm-shell claude process), and then hide the
+        ;; buffer. We'll optionally re-open it later.
+        (pop-to-buffer buffer)
+        (vterm-mode)
+        (delete-window (get-buffer-window buffer))
+        buffer))))
 
 ;; Helper to ensure vterm is loaded
 (defun claude-code--ensure-vterm ()
