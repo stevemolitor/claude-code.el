@@ -24,7 +24,7 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 
 - Emacs 30.0 or higher
 - [Claude Code CLI](https://github.com/anthropics/claude-code) installed and configured
-- Required: transient (0.7.5+)
+- Required: transient (0.7.5+) inheritenv (0.2)
 - Optional: eat (0.9.2+) for eat backend, vterm for vterm backend
   - Note: If not using a `:vc` install, the `eat` package requires NonGNU ELPA:
     ```elisp
