@@ -358,6 +358,13 @@ for each directory across multiple invocations.")
 (defvar claude-code--window-widths nil
   "Hash table mapping windows to their last known widths for eat terminals.")
 
+(defvar claude-code-command-history nil
+  "History of commands sent to Claude.
+This is separate from Emacs' main variable `command-history' to prevent
+pollution when using `savehist-mode'.  Users can optionally save
+this history by adding `claude-code-command-history' to
+`savehist-additional-variables'.")
+
 ;;;; Key bindings
 ;;;###autoload (autoload 'claude-code-command-map "claude-code")
 (defvar claude-code-command-map
@@ -1741,23 +1748,25 @@ directories, allowing you to choose which one to switch to."
   (claude-code--kill-all-instances))
 
 ;;;###autoload
-(defun claude-code-send-command (cmd &optional arg)
+(defun claude-code-send-command (&optional arg)
   "Read a Claude command from the minibuffer and send it.
 
-With prefix ARG, switch to the Claude buffer after sending CMD."
-  (interactive "sClaude command: \nP")
-  (let ((selected-buffer (claude-code--do-send-command cmd)))
+With prefix ARG, switch to the Claude buffer after sending."
+  (interactive "P")
+  (let* ((cmd (read-string "Claude command: " nil 'claude-code-command-history))
+         (selected-buffer (claude-code--do-send-command cmd)))
     (when (and arg selected-buffer)
       (pop-to-buffer selected-buffer))))
 
 ;;;###autoload
-(defun claude-code-send-command-with-context (cmd &optional arg)
+(defun claude-code-send-command-with-context (&optional arg)
   "Read a Claude command and send it with current file and line context.
 
 If region is active, include region line numbers.
-With prefix ARG, switch to the Claude buffer after sending CMD."
-  (interactive "sClaude command: \nP")
-  (let* ((file-ref (if (use-region-p)
+With prefix ARG, switch to the Claude buffer after sending."
+  (interactive "P")
+  (let* ((cmd (read-string "Claude command: " nil 'claude-code-command-history))
+         (file-ref (if (use-region-p)
                        (claude-code--format-file-reference
                         nil
                         (line-number-at-pos (region-beginning) t)
