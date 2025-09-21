@@ -18,6 +18,6 @@ checkdoc:
 	for FILE in ${EL_FILES}; do $(EMACS) --batch -L . -eval "(setq sentence-end-double-space nil)" -eval "(checkdoc-file \"$$FILE\")" ; done
 
 compile: clean
-	$(EMACS) --batch -L . --eval "(setq sentence-end-double-space nil)" -f batch-byte-compile *.el
+	$(EMACS) --batch -L . --eval "(progn (require 'package) (add-to-list 'package-archives '(\"melpa\" . \"https://melpa.org/packages/\") t) (package-initialize) (setq sentence-end-double-space nil))" -f batch-byte-compile *.el
 
 all: checkdoc compile
