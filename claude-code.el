@@ -832,27 +832,27 @@ _BACKEND is the terminal backend type (should be \\='vterm)."
 (defun claude-code--vterm-send-escape ()
   "Send escape key to vterm."
   (interactive)
-  (vterm-send-key ""))
+  (vterm-send-key "\C-["))
 
 (defun claude-code--vterm-send-return ()
-  "Send escape key to vterm."
+  "Send return key to vterm."
   (interactive)
-  (vterm-send-key ""))
+  (vterm-send-key "\C-m"))
 
 (defun claude-code--vterm-send-alt-return ()
   "Send <alt>-<return> to vterm."
   (interactive)
-  (vterm-send-key "" nil t))
+  (vterm-send-key "\C-m" nil t))
 
 (defun claude-code--vterm-send-shift-return ()
   "Send shift return to vterm."
   (interactive)
-  (vterm-send-key "" t))
+  (vterm-send-key "\C-m" t))
 
 (defun claude-code--vterm-send-super-return ()
-  "Send escape key to vterm."
+  "Send super-return key to vterm."
   (interactive)
-  ;; (vterm-send-key " " t)
+  ;; (vterm-send-key "\C-@" t)
   (vterm-send-key (kbd "s-<return>") t))
 
 ;; (defun claude-code--vterm-send-alt-return ()
