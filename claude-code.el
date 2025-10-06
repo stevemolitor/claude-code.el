@@ -791,8 +791,8 @@ _BACKEND is the terminal backend type (should be \\='vterm)."
   (claude-code--ensure-vterm)
   (vterm-copy-mode -1)
   (setq-local cursor-type nil)
-  ;; Restore keybindings that were lost when vterm-copy-mode reset the keymap
-  (claude-code--term-setup-keymap 'vterm))
+  ;; Keymap restoration is handled by vterm-copy-mode-hook
+  )
 
 (cl-defmethod claude-code--term-in-read-only-p ((_backend (eql vterm)))
   "Check if vterm terminal is in read-only mode.
@@ -827,7 +827,13 @@ _BACKEND is the terminal backend type (should be \\='vterm)."
   ;; Set up bell detection advice
   (advice-add 'vterm--filter :around #'claude-code--vterm-bell-detector)
   ;; Set up multi-line buffering to prevent flickering
-  (advice-add 'vterm--filter :around #'claude-code--vterm-multiline-buffer-filter))
+  (advice-add 'vterm--filter :around #'claude-code--vterm-multiline-buffer-filter)
+  ;; Set up hook to restore keymap when exiting vterm-copy-mode
+  (add-hook 'vterm-copy-mode-hook
+            (lambda ()
+              (unless vterm-copy-mode  ; Only when exiting copy-mode
+                (claude-code--term-setup-keymap 'vterm)))
+            nil t))  ; buffer-local hook
 
 (cl-defmethod claude-code--term-customize-faces ((_backend (eql vterm)))
   "Apply face customizations for vterm terminal.
