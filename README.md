@@ -40,6 +40,10 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 (add-to-list 'package-archives '("melpa" . "https://melpa.org/packages/") t)
 (package-initialize)
 
+;; install required inheritenv dependency:
+(use-package inheritenv
+  :vc (:url "https://github.com/purcell/inheritenv" :rev :newest))
+
 ;; for eat terminal backend:
 (use-package eat :ensure t)
 
@@ -49,14 +53,14 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 ;; install claude-code.el
 (use-package claude-code :ensure t
   :vc (:url "https://github.com/stevemolitor/claude-code.el" :rev :newest)
-  :config 
+  :config
   ;; optional IDE integration with Monet
   (add-hook 'claude-code-process-environment-functions #'monet-start-server-function)
   (monet-mode 1)
-  
+
   (claude-code-mode)
   :bind-keymap ("C-c c" . claude-code-command-map)
-  
+
   ;; Optionally define a repeat map so that "M" will cycle thru Claude auto-accept/plan/confirm modes after invoking claude-code-cycle-mode / C-c M.
   :bind
   (:repeat-map my-claude-code-map ("M" . claude-code-cycle-mode)))
@@ -65,6 +69,10 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 ### Using straight.el
 
 ```elisp
+;; install required inheritenv dependency:
+(use-package inheritenv
+  :straight (:type git :host github :repo "purcell/inheritenv"))
+
 ;; for eat terminal backend:
 (use-package eat
   :straight (:type git
