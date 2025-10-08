@@ -35,7 +35,7 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 ### Using builtin use-package (Emacs 30+)
 
 ```elisp
-;; add melp to package archives, as vterm is on melpa:
+;; add melpa to package archives, as vterm is on melpa:
 (require 'package)
 (add-to-list 'package-archives '("melpa" . "https://melpa.org/packages/") t)
 (package-initialize)
