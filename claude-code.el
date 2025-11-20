@@ -1665,7 +1665,7 @@ If the Claude buffer doesn't exist, create it."
     (if claude-code-buffer
         (if (get-buffer-window claude-code-buffer)
             (delete-window (get-buffer-window claude-code-buffer))
-          (let ((window (display-buffer claude-code-buffer '((display-buffer-below-selected)))))
+          (let ((window (funcall claude-code-display-window-fn claude-code-buffer)))
             ;; set no-delete-other-windows parameter for claude-code window
             (set-window-parameter window 'no-delete-other-windows claude-code-no-delete-other-windows)
             ;; Optionally select the window based on user preference
