@@ -965,6 +965,16 @@ Returns a list of buffer objects."
                      (file-truename buf-dir)))))
    (claude-code--find-all-claude-buffers)))
 
+(defun claude-code--find-visible-claude-buffers ()
+  "Find Claude buffers visible in windows of the current frame."
+  (let ((visible-buffers '()))
+    (dolist (window (window-list nil 'no-minibuf))
+      (let ((buffer (window-buffer window)))
+        (when (and (claude-code--buffer-p buffer)
+                   (not (member buffer visible-buffers)))
+          (push buffer visible-buffers))))
+    visible-buffers))
+
 (defun claude-code--extract-directory-from-buffer-name (buffer-name)
   "Extract the directory path from a Claude BUFFER-NAME.
 
@@ -1043,14 +1053,23 @@ it's remembered for the current directory."
 (defun claude-code--get-or-prompt-for-buffer ()
   "Get Claude buffer for current directory or prompt for selection.
 
-First checks for Claude buffers in the current directory. If there are
-multiple, prompts the user to select one. If there are none, checks if
-there's a remembered selection for this directory. If not, and there are
-other Claude buffers running, prompts the user to select one. Returns
-the buffer or nil."
+First checks if exactly one Claude buffer is visible in the current frame.
+If so, returns it immediately.
+Otherwise, checks for Claude buffers in the current directory.
+If there is exactly one, returns it immediately.
+If there are multiple, prompts the user to select one.
+If there are none, checks if there's a remembered selection for this directory.
+If not, and there are other Claude buffers running, prompts the user to select
+one.
+
+Returns the buffer or nil."
   (let* ((current-dir (claude-code--directory))
+         (visible-buffers (claude-code--find-visible-claude-buffers))
          (dir-buffers (claude-code--find-claude-buffers-for-directory current-dir)))
     (cond
+     ;; If exactly one Claude buffer is visible in current frame, use the visible one
+     ((= (length visible-buffers) 1)
+      (car visible-buffers))
      ;; Multiple buffers for this directory - prompt for selection
      ((> (length dir-buffers) 1)
       (claude-code--select-buffer-from-choices
