@@ -1253,6 +1253,15 @@ hidden unless already visible."
   :type 'boolean
   :group 'claude-code)
 
+(defcustom claude-code-use-consult-preview t
+  "Whether to use consult for live buffer preview in `claude-code-here'.
+
+When non-nil and consult is installed, `claude-code-here' shows a live
+preview of Claude buffers as you navigate through candidates.  When nil
+or consult is not available, falls back to standard `completing-read'."
+  :type 'boolean
+  :group 'claude-code)
+
 (defun claude-code--start (arg extra-switches &optional force-prompt force-switch-to-buffer)
   "Start Claude with given command-line EXTRA-SWITCHES.
 
@@ -1770,6 +1779,39 @@ If the Claude buffer doesn't exist, create it."
               (select-window window))))
       (claude-code--show-not-running-message))))
 
+(defun claude-code--buffer-preview-state (choices-alist)
+  "Create a state function for previewing Claude buffers.
+
+CHOICES-ALIST is an alist mapping display names to buffer objects.
+Returns a function suitable for consult's :state parameter that
+shows buffer contents as the user navigates through candidates."
+  (let ((orig-buf (current-buffer)))
+    (lambda (action cand)
+      (when (eq action 'preview)
+        (let ((buf (and cand (cdr (assoc cand choices-alist)))))
+          (cond
+           ((and buf (bufferp buf) (buffer-live-p buf))
+            (switch-to-buffer buf 'norecord))
+           ((buffer-live-p orig-buf)
+            (switch-to-buffer orig-buf 'norecord))))))))
+
+(defun claude-code--read-buffer-selection (prompt choices-alist)
+  "Read a buffer selection using PROMPT from CHOICES-ALIST.
+
+CHOICES-ALIST is an alist mapping display names to buffer objects or symbols.
+When `claude-code-use-consult-preview' is non-nil and consult is available,
+uses consult with live buffer preview.  Otherwise falls back to
+`completing-read'."
+  (let ((candidates (mapcar #'car choices-alist)))
+    (if (and claude-code-use-consult-preview
+             (fboundp 'consult--read))
+        (consult--read candidates
+                       :prompt prompt
+                       :require-match t
+                       :state (claude-code--buffer-preview-state choices-alist)
+                       :category 'buffer)
+      (completing-read prompt candidates nil t))))
+
 ;;;###autoload
 (defun claude-code-here ()
   "Switch current window to a Claude buffer, with option to create new.
@@ -1777,25 +1819,23 @@ If the Claude buffer doesn't exist, create it."
 Prompts for a Claude buffer to switch to.  The selection includes all
 running Claude instances plus an option to create a new instance.
 Unlike `claude-code-toggle', this replaces the current window's buffer
-rather than displaying in a separate window."
+rather than displaying in a separate window.
+
+When `claude-code-use-consult-preview' is non-nil and consult is
+installed, provides live buffer preview while navigating."
   (interactive)
   (let* ((all-buffers (claude-code--find-all-claude-buffers))
          (choices (claude-code--buffers-to-choices all-buffers))
-         ;; Add "Make new instance" option at the beginning
          (choices-with-new (cons '("+ New Claude instance" . :new) choices))
-         (selection (completing-read "Claude: "
-                                     (mapcar #'car choices-with-new)
-                                     nil t)))
+         (selection (claude-code--read-buffer-selection "Claude: " choices-with-new)))
     (when selection
       (let ((selected (cdr (assoc selection choices-with-new))))
         (if (eq selected :new)
-            ;; Create new instance and switch to it in current window
             (let ((claude-code-display-window-fn
                    (lambda (buf)
                      (switch-to-buffer buf)
                      (selected-window))))
               (call-interactively #'claude-code))
-          ;; Switch to existing buffer in current window
           (switch-to-buffer selected))))))
 
 ;;;###autoload
