@@ -387,6 +387,7 @@ this history by adding `claude-code-command-history' to
     (define-key map (kbd "s") 'claude-code-send-command)
     (define-key map (kbd "S") 'claude-code-sandbox)
     (define-key map (kbd "t") 'claude-code-toggle)
+    (define-key map (kbd "h") 'claude-code-here)
     (define-key map (kbd "x") 'claude-code-send-command-with-context)
     (define-key map (kbd "y") 'claude-code-send-return)
     (define-key map (kbd "z") 'claude-code-toggle-read-only-mode)
@@ -423,6 +424,7 @@ this history by adding `claude-code-command-history' to
     ("/" "Slash Commands" claude-code-slash-commands)]
    ["Manage Claude"
     ("t" "Toggle claude window" claude-code-toggle)
+    ("h" "Claude here (replace window)" claude-code-here)
     ("b" "Switch to Claude buffer" claude-code-switch-to-buffer)
     ("B" "Select from all Claude buffers" claude-code-select-buffer)
     ("z" "Toggle read-only mode" claude-code-toggle-read-only-mode)
@@ -1691,6 +1693,34 @@ If the Claude buffer doesn't exist, create it."
             (when claude-code-toggle-auto-select
               (select-window window))))
       (claude-code--show-not-running-message))))
+
+;;;###autoload
+(defun claude-code-here ()
+  "Switch current window to a Claude buffer, with option to create new.
+
+Prompts for a Claude buffer to switch to.  The selection includes all
+running Claude instances plus an option to create a new instance.
+Unlike `claude-code-toggle', this replaces the current window's buffer
+rather than displaying in a separate window."
+  (interactive)
+  (let* ((all-buffers (claude-code--find-all-claude-buffers))
+         (choices (claude-code--buffers-to-choices all-buffers))
+         ;; Add "Make new instance" option at the beginning
+         (choices-with-new (cons '("+ New Claude instance" . :new) choices))
+         (selection (completing-read "Claude: "
+                                     (mapcar #'car choices-with-new)
+                                     nil t)))
+    (when selection
+      (let ((selected (cdr (assoc selection choices-with-new))))
+        (if (eq selected :new)
+            ;; Create new instance and switch to it in current window
+            (let ((claude-code-display-window-fn
+                   (lambda (buf)
+                     (switch-to-buffer buf)
+                     (selected-window))))
+              (call-interactively #'claude-code))
+          ;; Switch to existing buffer in current window
+          (switch-to-buffer selected))))))
 
 ;;;###autoload
 (defun claude-code--switch-to-all-instances-helper ()
