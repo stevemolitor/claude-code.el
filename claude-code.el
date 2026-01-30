@@ -146,6 +146,14 @@ to provide visual feedback when Claude is ready for input."
   :type 'function
   :group 'claude-code)
 
+(defcustom claude-code-sync-buffer-name-with-title nil
+  "Whether to rename Claude buffers based on terminal title changes.
+
+When non-nil, buffer names will be updated to reflect the session name
+set by the Claude Code CLI via terminal title escape sequences."
+  :type 'boolean
+  :group 'claude-code)
+
 (defcustom claude-code-confirm-kill t
   "Whether to ask for confirmation before killing Claude instances.
 
@@ -639,7 +647,8 @@ _BACKEND is the terminal backend type (should be \\='eat)."
 
   ;; Configure bell handler - ensure eat-terminal exists
   (when (bound-and-true-p eat-terminal)
-    (eval '(setf (eat-term-parameter eat-terminal 'ring-bell-function) #'claude-code--notify)))
+    (eval '(setf (eat-term-parameter eat-terminal 'ring-bell-function) #'claude-code--notify))
+    (eval '(setf (eat-term-parameter eat-terminal 'set-title-function) #'claude-code--handle-title-change)))
 
   ;; fix wonky initial terminal layout that happens sometimes if we show the buffer before claude is ready
   (sleep-for claude-code-startup-delay))
@@ -1531,6 +1540,28 @@ TERMINAL is the eat terminal parameter (not used)."
     (funcall claude-code-notification-function
              "Claude Ready"
              "Waiting for your response")))
+
+(defun claude-code--handle-title-change (_terminal title)
+  "Handle terminal title change to TITLE.
+
+_TERMINAL is the eat terminal (not used).
+Renames the buffer to include the session name from TITLE.
+Ignores the default \"* Claude Code*\" title if the buffer already has
+a custom instance name set.
+Only active when `claude-code-sync-buffer-name-with-title' is non-nil."
+  (when (and claude-code-sync-buffer-name-with-title
+             title
+             (not (string-empty-p title)))
+    (let* ((current-name (buffer-name))
+           (dir (claude-code--extract-directory-from-buffer-name current-name))
+           (current-instance (claude-code--extract-instance-name-from-buffer-name current-name))
+           (new-name (format "*claude:%s:%s*" dir title)))
+      (when (and dir
+                 (not (string= current-name new-name))
+                 ;; Don't replace existing custom title with default "* Claude Code*"
+                 (not (and current-instance
+                           (string= title "* Claude Code*"))))
+        (rename-buffer new-name t)))))
 
 (defun claude-code--vterm-bell-detector (orig-fun process input)
   "Detect bell characters in vterm output and trigger notifications.
