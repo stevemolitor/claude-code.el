@@ -413,6 +413,7 @@ this history by adding `claude-code-command-history' to
     (define-key map (kbd "3") 'claude-code-send-3)
     (define-key map (kbd "M") 'claude-code-cycle-mode)
     (define-key map (kbd "o") 'claude-code-send-buffer-file)
+    (define-key map (kbd "O") 'claude-code-send-project-file)
     map)
   "Keymap for Claude commands.")
 
@@ -436,6 +437,7 @@ this history by adding `claude-code-command-history' to
     ("x" "Send command with context" claude-code-send-command-with-context)
     ("r" "Send region or buffer" claude-code-send-region)
     ("o" "Send buffer file" claude-code-send-buffer-file)
+    ("O" "Send project file" claude-code-send-project-file)
     ("e" "Fix error at point" claude-code-fix-error-at-point)
     ("f" "Fork conversation" claude-code-fork)
     ("/" "Slash Commands" claude-code-slash-commands)]
@@ -1978,6 +1980,25 @@ With two prefix ARGs, both add instructions and switch to Claude buffer."
             (when (and (equal arg '(16)) selected-buffer) ; Only switch buffer with C-u C-u
               (pop-to-buffer selected-buffer))))
       (error "Current buffer is not associated with a file"))))
+
+;;;###autoload
+(defun claude-code-send-project-file ()
+  "Select a file from the current project and send it to Claude.
+
+Uses `project-files' to list files in the current project and prompts
+for selection using `completing-read'."
+  (interactive)
+  (if-let ((project (project-current)))
+      (let* ((files (project-files project))
+             (root (project-root project))
+             (selected-file (completing-read "Send file to Claude: "
+                                             (mapcar (lambda (f)
+                                                       (file-relative-name f root))
+                                                     files)
+                                             nil t))
+             (full-path (expand-file-name selected-file root)))
+        (claude-code-send-file full-path))
+    (error "Not in a project")))
 
 (defun claude-code--send-meta-return ()
   "Send Meta-Return key sequence to the terminal."
