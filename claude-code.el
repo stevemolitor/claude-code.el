@@ -1214,7 +1214,8 @@ Returns the selected Claude buffer or nil."
           (sit-for 0.1)
           ;; Send Return
           (claude-code--term-send-string claude-code-terminal-backend (kbd "RET"))
-          (display-buffer claude-code-buffer))
+          (when claude-code-auto-display-on-send
+            (display-buffer claude-code-buffer)))
         claude-code-buffer)
     (claude-code--show-not-running-message)
     nil))
@@ -1229,6 +1230,15 @@ Returns the selected Claude buffer or nil."
 
 Must be callable with a buffer as its parameter."
   :type 'function)
+
+(defcustom claude-code-auto-display-on-send t
+  "Whether to automatically display the Claude buffer after sending commands.
+
+When non-nil, the Claude buffer is displayed after sending commands
+via `claude-code--do-send-command'.  When nil, the buffer remains
+hidden unless already visible."
+  :type 'boolean
+  :group 'claude-code)
 
 (defun claude-code--start (arg extra-switches &optional force-prompt force-switch-to-buffer)
   "Start Claude with given command-line EXTRA-SWITCHES.
