@@ -162,6 +162,15 @@ When nil, Claude instances will be killed without confirmation."
   :type 'boolean
   :group 'claude-code)
 
+(defcustom claude-code-kill-buffer-on-exit nil
+  "Whether to automatically kill the buffer when Claude process exits.
+
+When non-nil, the Claude buffer will be automatically killed when the
+Claude process finishes or exits.  When nil, the buffer will remain
+open for inspection even after the process has exited."
+  :type 'boolean
+  :group 'claude-code)
+
 (defcustom claude-code-optimize-window-resize t
   "Whether to optimize terminal window resizing to prevent unnecessary reflows.
 
@@ -1323,6 +1332,10 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
       ;; Add cleanup hook to remove directory mappings when buffer is killed
       (add-hook 'kill-buffer-hook #'claude-code--cleanup-directory-mapping nil t)
 
+      ;; Set up process sentinel for automatic buffer cleanup on exit
+      (when-let ((proc (get-buffer-process buffer)))
+        (set-process-sentinel proc #'claude-code--process-sentinel))
+
       ;; run start hooks
       (run-hooks 'claude-code-start-hook)
 
@@ -1572,6 +1585,24 @@ Only active when `claude-code-sync-buffer-name-with-title' is non-nil."
                  (not (and current-instance
                            (string= title "* Claude Code*"))))
         (rename-buffer new-name t)))))
+
+(defun claude-code--process-sentinel (process event)
+  "Process sentinel for Claude processes.
+
+PROCESS is the Claude process.
+EVENT is the process status change event string.
+
+When `claude-code-kill-buffer-on-exit' is non-nil, automatically
+kills the buffer associated with PROCESS when it exits."
+  (when (and claude-code-kill-buffer-on-exit
+             (memq (process-status process) '(exit signal))
+             (buffer-live-p (process-buffer process)))
+    ;; Give a brief moment for any final output to be processed
+    (run-at-time 0.1 nil
+                 (lambda (buf)
+                   (when (buffer-live-p buf)
+                     (kill-buffer buf)))
+                 (process-buffer process))))
 
 (defun claude-code--vterm-bell-detector (orig-fun process input)
   "Detect bell characters in vterm output and trigger notifications.
