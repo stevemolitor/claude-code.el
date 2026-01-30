@@ -999,16 +999,18 @@ Returns a list of buffer objects."
   "Extract the directory path from a Claude BUFFER-NAME.
 
 For example, *claude:/path/to/project/* returns /path/to/project/.
-For example, *claude:/path/to/project/:tests* returns /path/to/project/."
-  (when (string-match "^\\*claude:\\([^:]+\\)\\(?::\\([^*]+\\)\\)?\\*$" buffer-name)
+For example, *claude:/path/to/project/:tests* returns /path/to/project/.
+Handles uniquify suffixes like <2>."
+  (when (string-match "^\\*claude:\\([^:]+\\)\\(?::\\([^*]+\\)\\)?\\*\\(?:<[0-9]+>\\)?$" buffer-name)
     (match-string 1 buffer-name)))
 
 (defun claude-code--extract-instance-name-from-buffer-name (buffer-name)
   "Extract the instance name from a Claude BUFFER-NAME.
 
 For example, *claude:/path/to/project/:tests* returns \"tests\".
-For example, *claude:/path/to/project/* returns nil."
-  (when (string-match "^\\*claude:\\([^:]+\\)\\(?::\\([^*]+\\)\\)?\\*$" buffer-name)
+For example, *claude:/path/to/project/* returns nil.
+Handles uniquify suffixes like <2>."
+  (when (string-match "^\\*claude:\\([^:]+\\)\\(?::\\([^*]+\\)\\)?\\*\\(?:<[0-9]+>\\)?$" buffer-name)
     (match-string 2 buffer-name)))
 
 (defun claude-code--buffer-display-name (buffer)
