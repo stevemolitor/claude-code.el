@@ -104,6 +104,9 @@ These are passed as SWITCHES parameters to `eat-make`."
   :type '(repeat string)
   :group 'claude-code)
 
+(defvar claude-code--auto-mode-enabled nil
+  "When non-nil, pass `--enable-auto-mode' to Claude on startup.")
+
 (defcustom claude-code-sandbox-program nil
   "Program to run when starting Claude in sandbox mode.
 This must be set to the path of your Claude sandbox binary before use."
@@ -399,6 +402,13 @@ this history by adding `claude-code-command-history' to
   "Keymap for Claude commands.")
 
 ;;;; Transient Menus
+
+(defun claude-code-toggle-auto-mode ()
+  "Toggle auto mode for Claude startup."
+  (interactive)
+  (setq claude-code--auto-mode-enabled (not claude-code--auto-mode-enabled))
+  (message "Claude auto mode %s" (if claude-code--auto-mode-enabled "enabled" "disabled")))
+
 ;;;###autoload (autoload 'claude-code-transient "claude-code" nil t)
 (transient-define-prefix claude-code-transient ()
   "Claude command menu."
@@ -434,7 +444,13 @@ this history by adding `claude-code-command-history' to
     ("1" "Send \"1\"" claude-code-send-1)
     ("2" "Send \"2\"" claude-code-send-2)
     ("3" "Send \"3\"" claude-code-send-3)
-    ]])
+    ]
+   ["Options"
+    ("a" claude-code-toggle-auto-mode
+     :transient t
+     :description (lambda ()
+                    (format "Auto mode (%s)"
+                            (if claude-code--auto-mode-enabled "on" "off"))))]])
 
 ;;;###autoload (autoload 'claude-code-slash-commands "claude-code" nil t)
 (transient-define-prefix claude-code-slash-commands ()
@@ -1226,9 +1242,11 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
          ;; Prompt for instance name (only if instances exist, or force-prompt is true)
          (instance-name (claude-code--prompt-for-instance-name dir existing-instance-names force-prompt))
          (buffer-name (claude-code--buffer-name instance-name))
-         (program-switches (if extra-switches
-                               (append claude-code-program-switches extra-switches)
-                             claude-code-program-switches))
+         (auto-mode-switch (when claude-code--auto-mode-enabled
+                            '("--enable-auto-mode")))
+         (program-switches (append claude-code-program-switches
+                                   extra-switches
+                                   auto-mode-switch))
 
          ;; Set process-adaptive-read-buffering to nil to avoid flickering while Claude is processing
          (process-adaptive-read-buffering nil)
