@@ -169,9 +169,10 @@ resizing."
 
 (defcustom claude-code-terminal-backend 'eat
   "Terminal backend to use for Claude Code.
-Choose between \\='eat (default) and \\='vterm terminal emulators."
+Choose between \\='eat (default), \\='vterm, and \\='ghostel terminal emulators."
   :type '(radio (const :tag "Eat terminal emulator" eat)
-                (const :tag "Vterm terminal emulator" vterm))
+                (const :tag "Vterm terminal emulator" vterm)
+                (const :tag "Ghostel terminal emulator (libghostty)" ghostel))
   :group 'claude-code)
 
 (defcustom claude-code-no-delete-other-windows nil
@@ -909,6 +910,159 @@ _BACKEND is the terminal backend type (should be \\='vterm)."
   "Get the BACKEND specific function that adjusts window size."
   #'vterm--window-adjust-process-window-size)
 
+;;;;; ghostel backend implementations
+
+;; Declare external variables and functions from ghostel package
+(defvar ghostel--process)
+(defvar ghostel--copy-mode-active)
+(defvar ghostel-kill-buffer-on-exit)
+(defvar ghostel-enable-title-tracking)
+(declare-function ghostel-exec "ghostel")
+(declare-function ghostel-send-string "ghostel")
+(declare-function ghostel-send-key "ghostel")
+(declare-function ghostel-copy-mode "ghostel")
+(declare-function ghostel-copy-mode-exit "ghostel")
+(declare-function ghostel--window-adjust-process-window-size "ghostel")
+
+;; Helper to ensure ghostel is loaded
+(defun claude-code--ensure-ghostel ()
+  "Ensure ghostel package is loaded."
+  (unless (featurep 'ghostel)
+    (unless (require 'ghostel nil t)
+      (error "The ghostel package is required for ghostel terminal backend. Please install it"))))
+
+(cl-defmethod claude-code--term-make ((_backend (eql ghostel)) buffer-name program &optional switches)
+  "Create a ghostel terminal for BACKEND.
+
+_BACKEND is the terminal backend type (should be \\='ghostel).
+BUFFER-NAME is the name for the new terminal buffer.
+PROGRAM is the program to run in the terminal.
+SWITCHES are optional command-line arguments for PROGRAM."
+  (claude-code--ensure-ghostel)
+  (let ((buffer (get-buffer-create buffer-name)))
+    (inheritenv (ghostel-exec buffer program switches))
+    buffer))
+
+(cl-defmethod claude-code--term-send-string ((_backend (eql ghostel)) string)
+  "Send STRING to ghostel terminal.
+
+_BACKEND is the terminal backend type (should be \\='ghostel).
+STRING is the text to send to the terminal."
+  (ghostel-send-string string))
+
+(cl-defmethod claude-code--term-kill-process ((_backend (eql ghostel)) buffer)
+  "Kill the ghostel terminal process in BUFFER.
+
+_BACKEND is the terminal backend type (should be \\='ghostel).
+BUFFER is the terminal buffer containing the process to kill."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when (and ghostel--process (process-live-p ghostel--process))
+        (kill-process ghostel--process)))
+    (kill-buffer buffer)))
+
+(cl-defmethod claude-code--term-read-only-mode ((_backend (eql ghostel)))
+  "Switch ghostel terminal to read-only mode.
+
+_BACKEND is the terminal backend type (should be \\='ghostel)."
+  (claude-code--ensure-ghostel)
+  (unless ghostel--copy-mode-active
+    (ghostel-copy-mode)))
+
+(cl-defmethod claude-code--term-interactive-mode ((_backend (eql ghostel)))
+  "Switch ghostel terminal to interactive mode.
+
+_BACKEND is the terminal backend type (should be \\='ghostel)."
+  (claude-code--ensure-ghostel)
+  (when ghostel--copy-mode-active
+    (ghostel-copy-mode-exit)
+    ;; Re-setup keymap since ghostel-copy-mode-exit restores the saved keymap
+    (claude-code--term-setup-keymap 'ghostel)))
+
+(cl-defmethod claude-code--term-in-read-only-p ((_backend (eql ghostel)))
+  "Check if ghostel terminal is in read-only mode.
+
+_BACKEND is the terminal backend type (should be \\='ghostel)."
+  ghostel--copy-mode-active)
+
+(defun claude-code--ghostel-bell-handler ()
+  "Handle bell from ghostel terminal by triggering Claude notification."
+  (claude-code--notify nil))
+
+(cl-defmethod claude-code--term-configure ((_backend (eql ghostel)))
+  "Configure ghostel terminal in current buffer.
+
+_BACKEND is the terminal backend type (should be \\='ghostel)."
+  (claude-code--ensure-ghostel)
+  ;; Prevent ghostel from killing buffer on process exit directly;
+  ;; instead route through claude-code--kill-buffer for proper cleanup
+  (setq-local ghostel-kill-buffer-on-exit nil)
+  (add-hook 'ghostel-exit-functions
+            (lambda (buf _event)
+              (claude-code--kill-buffer buf))
+            nil t)
+  ;; Prevent ghostel from renaming the buffer via OSC title sequences
+  (setq-local ghostel-enable-title-tracking nil)
+  ;; Route bell to claude-code notification system
+  ;; (ghostel native module calls `ding' on BEL, which uses ring-bell-function)
+  (setq-local ring-bell-function #'claude-code--ghostel-bell-handler)
+  ;; Fix initial terminal layout timing
+  (sleep-for claude-code-startup-delay))
+
+(cl-defmethod claude-code--term-customize-faces ((_backend (eql ghostel)))
+  "Apply face customizations for ghostel terminal.
+
+_BACKEND is the terminal backend type (should be \\='ghostel)."
+  ;; Ghostel inherits from term-color-* faces; no remapping needed
+  )
+
+(defun claude-code--ghostel-send-return ()
+  "Send return key to ghostel."
+  (interactive)
+  (ghostel-send-string "\r"))
+
+(defun claude-code--ghostel-send-alt-return ()
+  "Send <alt>-<return> to ghostel."
+  (interactive)
+  (ghostel-send-key "return" "meta"))
+
+(defun claude-code--ghostel-send-escape ()
+  "Send escape key to ghostel."
+  (interactive)
+  (ghostel-send-string "\e"))
+
+(cl-defmethod claude-code--term-setup-keymap ((_backend (eql ghostel)))
+  "Set up the local keymap for Claude Code buffers.
+
+_BACKEND is the terminal backend type (should be \\='ghostel)."
+  (let ((map (make-sparse-keymap)))
+    ;; Inherit parent ghostel keymap
+    (set-keymap-parent map (current-local-map))
+
+    ;; C-g for escape
+    (define-key map (kbd "C-g") #'claude-code--ghostel-send-escape)
+
+    ;; Configure key bindings based on user preference
+    (pcase claude-code-newline-keybinding-style
+      ('newline-on-shift-return
+       (define-key map (kbd "<S-return>") #'claude-code--ghostel-send-alt-return)
+       (define-key map (kbd "<return>") #'claude-code--ghostel-send-return))
+      ('newline-on-alt-return
+       (define-key map (kbd "<M-return>") #'claude-code--ghostel-send-alt-return)
+       (define-key map (kbd "<return>") #'claude-code--ghostel-send-return))
+      ('shift-return-to-send
+       (define-key map (kbd "<return>") #'claude-code--ghostel-send-alt-return)
+       (define-key map (kbd "<S-return>") #'claude-code--ghostel-send-return))
+      ('super-return-to-send
+       (define-key map (kbd "<return>") #'claude-code--ghostel-send-alt-return)
+       (define-key map (kbd "<s-return>") #'claude-code--ghostel-send-return)))
+
+    (use-local-map map)))
+
+(cl-defmethod claude-code--term-get-adjust-process-window-size-fn ((_backend (eql ghostel)))
+  "Get the ghostel specific function that adjusts window size."
+  #'ghostel--window-adjust-process-window-size)
+
 ;;;; Private util functions
 (defmacro claude-code--with-buffer (&rest body)
   "Execute BODY with the Claude buffer, handling buffer selection and display.
@@ -1298,7 +1452,10 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
           (set-window-parameter window 'left-fringe-width 0)
           (set-window-parameter window 'right-fringe-width 0)
           ;; set no-delete-other-windows parameter for claude-code window
-          (set-window-parameter window 'no-delete-other-windows claude-code-no-delete-other-windows))))
+          (set-window-parameter window 'no-delete-other-windows claude-code-no-delete-other-windows)
+          ;; Optionally select the window based on user preference
+          (when claude-code-toggle-auto-select
+            (select-window window)))))
 
     ;; switch to the Claude buffer if asked to
     (when switch-after
@@ -1494,9 +1651,9 @@ ARGS can contain additional arguments passed from the CLI."
 
     ;; Run the event hook and potentially get a JSON response
     (let* ((message (list :type type
-                         :buffer-name buffer-name
-                         :json-data json-data
-                         :args (append args extra-args)))
+                          :buffer-name buffer-name
+                          :json-data json-data
+                          :args (append args extra-args)))
            (hook-response (run-hook-with-args-until-success 'claude-code-event-hook message)))
 
       ;; Return hook response if any, otherwise nil

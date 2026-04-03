@@ -15,7 +15,7 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 - **Read-Only Mode** - Toggle to select and copy text with normal Emacs commands and keybindings
 - **Mode Cycling** - Quick switch between default, auto-accept edits, and plan modes
 - **Desktop Notifications** - Get notified when Claude finishes processing
-- **Terminal Choice** - Works with both eat and vterm backends
+- **Terminal Choice** - Works with eat, vterm, and ghostel (libghostty) backends
 - **Fully Customizable** - Configure keybindings, notifications, and display preferences
 
 ## Installation
@@ -25,7 +25,7 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 - Emacs 30.0 or higher
 - [Claude Code CLI](https://github.com/anthropics/claude-code) installed and configured
 - Required: transient (0.7.5+) inheritenv (0.2)
-- Optional: eat (0.9.2+) for eat backend, vterm for vterm backend
+- Optional: eat (0.9.2+) for eat backend, vterm for vterm backend, [ghostel](https://github.com/dakra/ghostel) for ghostel backend
   - Note: If not using a `:vc` install, the `eat` package requires NonGNU ELPA:
     ```elisp
     (add-to-list 'package-archives '("nongnu" . "https://elpa.nongnu.org/nongnu/"))
@@ -49,6 +49,10 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 
 ;; for vterm terminal backend:
 (use-package vterm :ensure t)
+
+;; for ghostel terminal backend (libghostty):
+(use-package ghostel
+  :vc (:url "https://github.com/dakra/ghostel" :rev :newest))
 
 ;; install claude-code.el
 (use-package claude-code :ensure t
@@ -87,6 +91,10 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 ;; for vterm terminal backend:
 (use-package vterm :straight t)
 
+;; for ghostel terminal backend (libghostty):
+(use-package ghostel
+  :straight (:type git :host github :repo "dakra/ghostel"))
+
 ;; install claude-code.el, using :depth 1 to reduce download size:
 (use-package claude-code
   :straight (:type git :host github :repo "stevemolitor/claude-code.el" :branch "main" :depth 1
@@ -109,13 +117,17 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 ### Setting Prefix Key
 You need to set your own key binding for the Claude Code command map, as described in the [Installation](#installation) section. The examples in this README use `C-c c` as the prefix key.
 
-### Picking Eat or Vterm
+### Picking a Terminal Backend
 
-By default claude-code.el uses the `eat` backend. If you prefer vterm customize
-`claude-code-terminal-backend`:
+By default claude-code.el uses the `eat` backend. You can switch to vterm or
+ghostel by customizing `claude-code-terminal-backend`:
 
 ```elisp
+;; Use vterm:
 (setq claude-code-terminal-backend 'vterm)
+
+;; Use ghostel (libghostty-powered terminal emulator):
+(setq claude-code-terminal-backend 'ghostel)
 ```
 
 ### Transient Menu
