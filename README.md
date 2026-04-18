@@ -181,6 +181,10 @@ You can optionally use [Monet](https://github.com/stevemolitor/monet) for IDE in
 
 When Claude starts a new instance it will automatically start a Monet websocket server to listen to and send IDE comments to/from Claude. Current selection will automatically be sent to Claude, and Claude will show diffs in Emacs, use Emacs Monet tools to open files, get diagnostics, etc. See the [Monet](https://github.com/stevemolitor/monet) documentation for more details.
 
+## Community Extensions
+
+- [**claude-code-extras**](https://github.com/lsy83971/claude-code-emacs) by [@lsy83971](https://github.com/lsy83971) — adds a dedicated input buffer for composing multi-line prompts (with send history), an instance manager dashboard (`tabulated-list-mode`), same-window display advice, copy/paste support for the vterm backend, and a spinner glyph fix. Worth a look if any of those features fit your workflow.
+
 ## Working with Multiple Claude Instances
 
 `claude-code.el` supports running multiple Claude instances across different projects and directories. Each Claude instance is associated with a specific directory (project root, file directory, or current directory).
