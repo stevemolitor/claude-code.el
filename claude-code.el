@@ -616,8 +616,8 @@ possible, preventing the scrolling up issue when editing other buffers."
   (dolist (window windows)
     (if (eq window 'buffer)
         (goto-char (eat-term-display-cursor eat-terminal))
-      ;; Don't move the cursor around when in eat-emacs-mode
-      (when (not buffer-read-only)
+      ;; Don't move the cursor around when in eat-emacs-mode (read-only mode)
+      (when eat--semi-char-mode
         (let ((cursor-pos (eat-term-display-cursor eat-terminal)))
           ;; Always set point to cursor position
           (set-window-point window cursor-pos)
