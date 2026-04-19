@@ -427,6 +427,7 @@ this history by adding `claude-code-command-history' to
     (define-key map (kbd "3") 'claude-code-send-3)
     (define-key map (kbd "M") 'claude-code-cycle-mode)
     (define-key map (kbd "o") 'claude-code-send-buffer-file)
+    (define-key map (kbd "p") 'claude-code-yank-media)
     map)
   "Keymap for Claude commands.")
 
@@ -457,6 +458,7 @@ this history by adding `claude-code-command-history' to
     ("x" "Send command with context" claude-code-send-command-with-context)
     ("r" "Send region or buffer" claude-code-send-region)
     ("o" "Send buffer file" claude-code-send-buffer-file)
+    ("p" "Paste image from clipboard" claude-code-yank-media)
     ("e" "Fix error at point" claude-code-fix-error-at-point)
     ("f" "Fork conversation" claude-code-fork)
     ("/" "Slash Commands" claude-code-slash-commands)]
@@ -2065,6 +2067,22 @@ This is useful for saying Yes when Claude asks for confirmation without
 having to switch to the REPL buffer."
   (interactive)
   (claude-code--do-send-command ""))
+
+;;;###autoload
+(defun claude-code-yank-media ()
+  "Paste an image from the clipboard into the current Claude buffer.
+
+Runs `yank-media' in the Claude buffer, which dispatches to the handler
+installed by `claude-code--register-image-yank-media-handler': the image
+is written to a temp file and an `@/path/to/image' reference is inserted
+at the prompt.  Claude's CLI reads `@path' references natively.
+
+Requires Emacs 29 or later."
+  (interactive)
+  (unless (fboundp 'yank-media)
+    (user-error "`yank-media' requires Emacs 29 or later"))
+  (claude-code--with-buffer
+   (call-interactively #'yank-media)))
 
 ;;;###autoload
 (defun claude-code-send-1 ()

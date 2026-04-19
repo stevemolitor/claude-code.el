@@ -175,7 +175,7 @@ To show and hide the Claude buffer use `claude-code-toggle` (`C-c c t`).  To jum
 
 ### Pasting Images
 
-On Emacs 29 and later, you can paste an image from the system clipboard directly into a Claude buffer with `M-x yank-media`. claude-code.el writes the image to a temp file and injects an `@/path/to/image` reference at the prompt; the Claude CLI reads `@path` references natively and attaches the image to your next message. The temp files are cleaned up when the Claude buffer is killed.
+On Emacs 29 and later, you can paste an image from the system clipboard directly into a Claude buffer with `claude-code-yank-media` (`C-c c p`), or with `M-x yank-media` from inside the Claude buffer. claude-code.el writes the image to a temp file and injects an `@/path/to/image` reference at the prompt; the Claude CLI reads `@path` references natively and attaches the image to your next message. The temp files are cleaned up when the Claude buffer is killed.
 
 Works with all terminal backends (eat, vterm, ghostel). Disable by setting `claude-code-enable-image-paste` to `nil`, or disable cleanup with `claude-code-image-paste-cleanup-on-kill`.
 
