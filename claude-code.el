@@ -186,11 +186,15 @@ launch a new full-screen buffer."
   :group 'claude-code-window)
 
 (defcustom claude-code-toggle-auto-select nil
-  "Whether to automatically select the Claude buffer after toggling it open.
+  "Whether to automatically select the Claude buffer after displaying it.
 
-When non-nil, `claude-code-toggle' will automatically switch to the
-Claude buffer when toggling it open.  When nil, the buffer will be
-displayed but focus will remain in the current buffer."
+When non-nil, commands that open or show the Claude buffer will also
+switch focus to it.  This applies to `claude-code-toggle' when it
+toggles the buffer open, and to `claude-code' (and related start
+commands) when they first display the buffer.
+
+When nil, the Claude buffer is displayed but focus remains in the
+current buffer."
   :type 'boolean
   :group 'claude-code-window)
 

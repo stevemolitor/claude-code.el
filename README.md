@@ -792,6 +792,16 @@ The `vterm-timer-delay` variable controls how often vterm refreshes its buffer w
 
 The default value of `0.1` seconds works well with Claude Code. Since Claude often sends large bursts of data when generating code or explanations, reducing this delay or disabling it (`nil`) can significantly degrade performance. Stick with the default, or use a slightly higher value  unless you experience specific display issues. 
 
+### Ghostel-specific Customization
+
+When using the ghostel (libghostty) backend, claude-code.el configures a few ghostel options automatically in Claude buffers:
+
+- Disables ghostel's own `ghostel-kill-buffer-on-exit` so claude-code.el manages buffer cleanup.
+- Disables `ghostel-enable-title-tracking` so OSC title sequences don't rename the Claude buffer.
+- Routes terminal bell events through `claude-code-notification-function` for consistent notifications.
+
+For general ghostel configuration (keybindings, colors, font settings, and so on), see the [ghostel documentation](https://github.com/dakra/ghostel).
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
