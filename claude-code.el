@@ -220,9 +220,19 @@ on older Emacs versions."
 
 When non-nil, any temp files created by `claude-code-enable-image-paste'
 are removed when the Claude buffer is killed.  When nil, the files
-stay in the variable `temporary-file-directory' until the OS cleans
-them up."
+stay in `claude-code-image-paste-directory' until the OS cleans them up."
   :type 'boolean
+  :group 'claude-code)
+
+(defcustom claude-code-image-paste-directory
+  (if (file-directory-p "/tmp") "/tmp" temporary-file-directory)
+  "Directory where pasted images are written.
+
+Defaults to \"/tmp\" on systems that have it (macOS, Linux, BSD) so
+the `@/path/to/image' reference inserted at the prompt stays short and
+readable.  Falls back to the variable `temporary-file-directory' on
+systems (e.g. Windows) without a top-level /tmp."
+  :type 'directory
   :group 'claude-code)
 
 ;;;;; Eat terminal customizations
@@ -1166,6 +1176,7 @@ receives it as a file reference at the prompt.
 
 Returns non-nil to signal the paste was handled."
   (let* ((ext (claude-code--image-extension-for-mimetype mimetype))
+         (temporary-file-directory claude-code-image-paste-directory)
          (path (make-temp-file "claude-image-" nil ext))
          (coding-system-for-write 'binary))
     (with-temp-file path (insert data))
