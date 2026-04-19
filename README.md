@@ -35,7 +35,7 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 ### Using builtin use-package (Emacs 30+)
 
 ```elisp
-;; add melpa to package archives, as vterm is on melpa:
+;; add melpa to package archives (vterm and ghostel are on melpa):
 (require 'package)
 (add-to-list 'package-archives '("melpa" . "https://melpa.org/packages/") t)
 (package-initialize)
@@ -119,8 +119,13 @@ You need to set your own key binding for the Claude Code command map, as describ
 
 ### Picking a Terminal Backend
 
-By default claude-code.el uses the `eat` backend. You can switch to vterm or
-ghostel by customizing `claude-code-terminal-backend`:
+claude-code.el supports three terminal backends:
+
+- **eat** (default) — pure Elisp terminal emulator, no external dependencies beyond its own Emacs package.
+- **vterm** — libvterm-based terminal; generally snappier than eat but requires compiling a native module.
+- **ghostel** — [libghostty](https://ghostty.org)-based terminal; typically faster than vterm and renders the Claude TUI most faithfully. Requires the [ghostel](https://github.com/dakra/ghostel) package.
+
+Switch backends by customizing `claude-code-terminal-backend`:
 
 ```elisp
 ;; Use vterm:
