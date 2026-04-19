@@ -7,6 +7,7 @@ An Emacs interface for [Claude Code CLI](https://github.com/anthropics/claude-co
 - **Seamless Emacs Integration** - Start, manage, and interact with Claude without leaving Emacs
 - **Stay in Your Buffer** - Send code, regions, or commands to Claude while keeping your focus
 - **Fix Errors Instantly** - Point at a flycheck/flymake error and ask Claude to fix it
+- **Paste Images** - `M-x yank-media` sends a clipboard image to Claude as an `@path` reference (Emacs 29+)
 - **Multiple Instances** - Run separate Claude sessions for different projects or tasks
 - **Quick Responses** - Answer Claude with a keystroke (<return>/<escape>/1/2/3) without switching buffers
 - **Smart Context** - Optionally include file paths and line numbers when sending commands to Claude
@@ -171,6 +172,12 @@ You can also send files directly to Claude using `claude-code-send-file` to send
 If you put your cursor over a flymake or flycheck error, you can ask Claude to fix it via `claude-code-fix-error-at-point` (`C-c c e`).
 
 To show and hide the Claude buffer use `claude-code-toggle` (`C-c c t`).  To jump to the Claude buffer use `claude-code-switch-to-buffer` (`C-c c b`). This will open the buffer if hidden.
+
+### Pasting Images
+
+On Emacs 29 and later, you can paste an image from the system clipboard directly into a Claude buffer with `M-x yank-media`. claude-code.el writes the image to a temp file and injects an `@/path/to/image` reference at the prompt; the Claude CLI reads `@path` references natively and attaches the image to your next message. The temp files are cleaned up when the Claude buffer is killed.
+
+Works with all terminal backends (eat, vterm, ghostel). Disable by setting `claude-code-enable-image-paste` to `nil`, or disable cleanup with `claude-code-image-paste-cleanup-on-kill`.
 
 ### Managing Claude Windows
 
