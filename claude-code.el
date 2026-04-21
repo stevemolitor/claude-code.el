@@ -201,6 +201,40 @@ current buffer."
   :type 'boolean
   :group 'claude-code-window)
 
+(defcustom claude-code-enable-image-paste t
+  "Whether to enable image paste via `yank-media' in Claude buffers.
+
+When non-nil, pasting an image from the system clipboard (or dragging
+and dropping an image onto a Claude buffer) via `yank-media' writes the
+image to a temp file and inserts an `@/path/to/image' reference at the
+prompt.  Claude's CLI reads `@path' references natively and will
+attach the image to your next message.
+
+Requires Emacs 29 or later (for `yank-media-handler').  Has no effect
+on older Emacs versions."
+  :type 'boolean
+  :group 'claude-code)
+
+(defcustom claude-code-image-paste-cleanup-on-kill t
+  "Whether to delete pasted image temp files when the Claude buffer is killed.
+
+When non-nil, any temp files created by `claude-code-enable-image-paste'
+are removed when the Claude buffer is killed.  When nil, the files
+stay in `claude-code-image-paste-directory' until the OS cleans them up."
+  :type 'boolean
+  :group 'claude-code)
+
+(defcustom claude-code-image-paste-directory
+  (if (file-directory-p "/tmp") "/tmp" temporary-file-directory)
+  "Directory where pasted images are written.
+
+Defaults to \"/tmp\" on systems that have it (macOS, Linux, BSD) so
+the `@/path/to/image' reference inserted at the prompt stays short and
+readable.  Falls back to the variable `temporary-file-directory' on
+systems (e.g. Windows) without a top-level /tmp."
+  :type 'directory
+  :group 'claude-code)
+
 ;;;;; Eat terminal customizations
 ;; Eat-specific terminal faces
 (defface claude-code-eat-prompt-annotation-running-face
@@ -403,6 +437,7 @@ this history by adding `claude-code-command-history' to
     (define-key map (kbd "3") 'claude-code-send-3)
     (define-key map (kbd "M") 'claude-code-cycle-mode)
     (define-key map (kbd "o") 'claude-code-send-buffer-file)
+    (define-key map (kbd "p") 'claude-code-yank-media)
     map)
   "Keymap for Claude commands.")
 
@@ -433,6 +468,7 @@ this history by adding `claude-code-command-history' to
     ("x" "Send command with context" claude-code-send-command-with-context)
     ("r" "Send region or buffer" claude-code-send-region)
     ("o" "Send buffer file" claude-code-send-buffer-file)
+    ("p" "Paste image from clipboard" claude-code-yank-media)
     ("e" "Fix error at point" claude-code-fix-error-at-point)
     ("f" "Fork conversation" claude-code-fork)
     ("/" "Slash Commands" claude-code-slash-commands)]
@@ -1105,6 +1141,72 @@ BUFFER can be either a buffer object or a buffer name string."
                 (buffer-name buffer))))
     (and name (string-match-p "^\\*claude:" name))))
 
+;;;;; Image paste
+
+(defvar-local claude-code--pasted-image-files nil
+  "List of temp image files created by `yank-media' in this buffer.
+Cleaned up on `kill-buffer' when `claude-code-image-paste-cleanup-on-kill'
+is non-nil.")
+
+(defconst claude-code--image-mime-extensions
+  '(("image/png"  . ".png")
+    ("image/jpeg" . ".jpg")
+    ("image/jpg"  . ".jpg")
+    ("image/gif"  . ".gif")
+    ("image/webp" . ".webp")
+    ("image/bmp"  . ".bmp"))
+  "Alist mapping image MIME-type prefix to file extension.")
+
+(defun claude-code--image-extension-for-mimetype (mimetype)
+  "Return the file extension (including the dot) for MIMETYPE.
+MIMETYPE may be a symbol or a string.  Falls back to \".png\" if
+the type is unrecognized."
+  (let* ((str (if (symbolp mimetype) (symbol-name mimetype) mimetype))
+         (match (seq-find (lambda (pair) (string-prefix-p (car pair) str))
+                          claude-code--image-mime-extensions)))
+    (if match (cdr match) ".png")))
+
+(defun claude-code--image-yank-media-handler (mimetype data)
+  "Handle an `image/*' paste in a Claude buffer.
+MIMETYPE is the MIME type (string or symbol); DATA is the raw bytes.
+
+Writes DATA to a temp file named by MIMETYPE's extension, remembers it
+for cleanup, then injects `@<path> ' into the terminal so Claude's CLI
+receives it as a file reference at the prompt.
+
+Returns non-nil to signal the paste was handled."
+  (let* ((ext (claude-code--image-extension-for-mimetype mimetype))
+         (temporary-file-directory claude-code-image-paste-directory)
+         (path (make-temp-file "claude-image-" nil ext))
+         (coding-system-for-write 'binary))
+    (with-temp-file path (insert data))
+    (push path claude-code--pasted-image-files)
+    (claude-code--term-send-string claude-code-terminal-backend
+                                   (concat "@" path " "))
+    (message "Pasted image as %s" path)
+    t))
+
+(defun claude-code--cleanup-pasted-images ()
+  "Delete any temp image files created by `yank-media' in this buffer.
+Called from `kill-buffer-hook' when
+`claude-code-image-paste-cleanup-on-kill' is non-nil."
+  (when claude-code-image-paste-cleanup-on-kill
+    (dolist (file claude-code--pasted-image-files)
+      (when (file-exists-p file)
+        (ignore-errors (delete-file file))))
+    (setq claude-code--pasted-image-files nil)))
+
+(defun claude-code--register-image-yank-media-handler ()
+  "Register `yank-media-handler' for images in the current Claude buffer.
+No-op on Emacs versions without `yank-media-handler' (pre-29)."
+  (when (and claude-code-enable-image-paste
+             (fboundp 'yank-media-handler))
+    (yank-media-handler "image/.*"
+                        #'claude-code--image-yank-media-handler)
+    (add-hook 'kill-buffer-hook
+              #'claude-code--cleanup-pasted-images
+              nil t)))
+
 (defun claude-code--directory ()
   "Get get the root Claude directory for the current buffer.
 
@@ -1458,6 +1560,10 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
 
       ;; Add cleanup hook to remove directory mappings when buffer is killed
       (add-hook 'kill-buffer-hook #'claude-code--cleanup-directory-mapping nil t)
+
+      ;; Register yank-media handler so users can paste images from the
+      ;; clipboard; the handler writes to a temp file and inserts @path.
+      (claude-code--register-image-yank-media-handler)
 
       ;; run start hooks
       (run-hooks 'claude-code-start-hook)
@@ -1972,6 +2078,22 @@ This is useful for saying Yes when Claude asks for confirmation without
 having to switch to the REPL buffer."
   (interactive)
   (claude-code--do-send-command ""))
+
+;;;###autoload
+(defun claude-code-yank-media ()
+  "Paste an image from the clipboard into the current Claude buffer.
+
+Runs `yank-media' in the Claude buffer, which dispatches to the handler
+installed by `claude-code--register-image-yank-media-handler': the image
+is written to a temp file and an `@/path/to/image' reference is inserted
+at the prompt.  Claude's CLI reads `@path' references natively.
+
+Requires Emacs 29 or later."
+  (interactive)
+  (unless (fboundp 'yank-media)
+    (user-error "`yank-media' requires Emacs 29 or later"))
+  (claude-code--with-buffer
+   (call-interactively #'yank-media)))
 
 ;;;###autoload
 (defun claude-code-send-1 ()
