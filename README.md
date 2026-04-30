@@ -815,7 +815,7 @@ The default value of `0.1` seconds works well with Claude Code. Since Claude oft
 When using the ghostel (libghostty) backend, claude-code.el configures a few ghostel options automatically in Claude buffers:
 
 - Disables ghostel's own `ghostel-kill-buffer-on-exit` so claude-code.el manages buffer cleanup.
-- Disables `ghostel-enable-title-tracking` so OSC title sequences don't rename the Claude buffer.
+- Sets `ghostel-set-title-function` to nil so OSC title sequences don't rename the Claude buffer.
 - Routes terminal bell events through `claude-code-notification-function` for consistent notifications.
 
 For general ghostel configuration (keybindings, colors, font settings, and so on), see the [ghostel documentation](https://github.com/dakra/ghostel).

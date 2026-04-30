@@ -971,7 +971,7 @@ _BACKEND is the terminal backend type (should be \\='vterm)."
 (defvar ghostel--process)
 (defvar ghostel--copy-mode-active)
 (defvar ghostel-kill-buffer-on-exit)
-(defvar ghostel-enable-title-tracking)
+(defvar ghostel-set-title-function)
 (declare-function ghostel-exec "ghostel")
 (declare-function ghostel-send-string "ghostel")
 (declare-function ghostel-send-key "ghostel")
@@ -1057,7 +1057,7 @@ _BACKEND is the terminal backend type (should be \\='ghostel)."
               (claude-code--kill-buffer buf))
             nil t)
   ;; Prevent ghostel from renaming the buffer via OSC title sequences
-  (setq-local ghostel-enable-title-tracking nil)
+  (setq-local ghostel-set-title-function nil)
   ;; Route bell to claude-code notification system
   ;; (ghostel native module calls `ding' on BEL, which uses ring-bell-function)
   (setq-local ring-bell-function #'claude-code--ghostel-bell-handler)
