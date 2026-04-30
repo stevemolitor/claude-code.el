@@ -179,7 +179,7 @@ On Emacs 29 and later, you can paste an image from the system clipboard directly
 
 Works with all terminal backends (eat, vterm, ghostel). Disable by setting `claude-code-enable-image-paste` to `nil`, or disable cleanup with `claude-code-image-paste-cleanup-on-kill`.
 
-If you use the [ghostel](https://github.com/dakra/ghostel) backend, regular `C-v` will also paste clipboard images directly into the Claude buffer — no claude-code.el handling required, since ghostel forwards image data through libghostty as a terminal feature ([thanks @dakra](https://github.com/stevemolitor/claude-code.el/issues/127#issuecomment-4288290963)). Drag-and-drop of image files into the buffer works the same way.
+If you use the [ghostel](https://github.com/dakra/ghostel) backend, regular `C-v` will also paste clipboard images directly into the Claude buffer — no claude-code.el handling required, since ghostel forwards image data through libghostty as a terminal feature ([thanks @dakra](https://github.com/stevemolitor/claude-code.el/issues/127#issuecomment-4288290963)).
 
 ### Managing Claude Windows
 

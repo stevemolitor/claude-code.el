@@ -204,11 +204,10 @@ current buffer."
 (defcustom claude-code-enable-image-paste t
   "Whether to enable image paste via `yank-media' in Claude buffers.
 
-When non-nil, pasting an image from the system clipboard (or dragging
-and dropping an image onto a Claude buffer) via `yank-media' writes the
-image to a temp file and inserts an `@/path/to/image' reference at the
-prompt.  Claude's CLI reads `@path' references natively and will
-attach the image to your next message.
+When non-nil, pasting an image from the system clipboard via
+`yank-media' writes the image to a temp file and inserts an
+`@/path/to/image' reference at the prompt.  Claude's CLI reads `@path'
+references natively and will attach the image to your next message.
 
 Requires Emacs 29 or later (for `yank-media-handler').  Has no effect
 on older Emacs versions."
