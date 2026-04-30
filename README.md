@@ -329,6 +329,8 @@ To add sound on Linux:
 (setq claude-code-notification-function #'my-claude-notify-with-sound)
 ```
 
+You may need to set `preferredNotifChannel` to `terminal_bell` in your Claude configuration.
+
 ### Windows Native Notifications
 
 For Windows, you can use PowerShell to create toast notifications:
