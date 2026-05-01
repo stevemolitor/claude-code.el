@@ -113,6 +113,14 @@ This must be set to the path of your Claude sandbox binary before use."
   :type '(choice (const :tag "Not configured" nil) string)
   :group 'claude-code)
 
+(defcustom claude-code-worktree-confirm-cleanup t
+  "Whether to prompt before removing the git worktree on buffer kill.
+
+When non-nil, killing a Claude worktree buffer will ask for confirmation
+before running `git worktree remove'."
+  :type 'boolean
+  :group 'claude-code)
+
 (defcustom claude-code-newline-keybinding-style 'newline-on-shift-return
   "Key binding style for entering newlines and sending messages.
 
@@ -427,6 +435,7 @@ this history by adding `claude-code-command-history' to
     (define-key map (kbd "r") 'claude-code-send-region)
     (define-key map (kbd "s") 'claude-code-send-command)
     (define-key map (kbd "S") 'claude-code-sandbox)
+    (define-key map (kbd "w") 'claude-code-worktree)
     (define-key map (kbd "t") 'claude-code-toggle)
     (define-key map (kbd "x") 'claude-code-send-command-with-context)
     (define-key map (kbd "y") 'claude-code-send-return)
@@ -459,6 +468,7 @@ this history by adding `claude-code-command-history' to
     ("C" "Continue conversation" claude-code-continue)
     ("R" "Resume session" claude-code-resume)
     ("i" "New instance" claude-code-new-instance)
+    ("w" "Start in worktree" claude-code-worktree)
     ("k" "Kill Claude" claude-code-kill)
     ("K" "Kill all Claude instances" claude-code-kill-all)
     ]
@@ -1220,6 +1230,44 @@ If not in a project and no buffer file return `default-directory'."
      ;; Case 3: No project and no buffer file
      (t default-directory))))
 
+(defvar-local claude-code--worktree-path nil
+  "Path to the git worktree associated with this Claude buffer.
+
+Set by `claude-code-worktree' for cleanup on buffer kill.")
+
+(defun claude-code--git-root ()
+  "Return the git repository root for `default-directory', or nil."
+  (let ((root (ignore-errors
+                (string-trim
+                 (with-output-to-string
+                   (with-current-buffer standard-output
+                     (process-file "git" nil t nil
+                                   "rev-parse" "--show-toplevel")))))))
+    (when (and root (not (string-empty-p root)))
+      (file-name-as-directory root))))
+
+(defun claude-code--remove-worktree (worktree-path)
+  "Remove the git worktree at WORKTREE-PATH."
+  (let ((default-directory (claude-code--git-root)))
+    (if default-directory
+        (let ((exit-code (process-file "git" nil nil nil
+                                       "worktree" "remove" worktree-path)))
+          (if (zerop exit-code)
+              (message "Removed worktree %s" worktree-path)
+            (message "Failed to remove worktree %s (exit %d)" worktree-path exit-code)))
+      (message "Cannot remove worktree: not in a git repository"))))
+
+(defun claude-code--maybe-cleanup-worktree ()
+  "Clean up the git worktree when a Claude worktree buffer is killed.
+
+Added to `kill-buffer-hook' by `claude-code-worktree'."
+  (when claude-code--worktree-path
+    (let ((wt-path claude-code--worktree-path))
+      (if claude-code-worktree-confirm-cleanup
+          (when (yes-or-no-p (format "Remove worktree %s? " wt-path))
+            (claude-code--remove-worktree wt-path))
+        (claude-code--remove-worktree wt-path)))))
+
 (defun claude-code--find-all-claude-buffers ()
   "Find all active Claude buffers across all directories.
 
@@ -1586,7 +1634,10 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
 
     ;; switch to the Claude buffer if asked to
     (when switch-after
-      (pop-to-buffer buffer))))
+      (pop-to-buffer buffer))
+
+    ;; Return the buffer
+    buffer))
 
 ;;;###autoload
 (defun claude-code (&optional arg)
@@ -1675,6 +1726,42 @@ for the project directory."
 
   ;; Call claude-code--start with force-prompt=t
   (claude-code--start arg nil t))
+
+;;;###autoload
+(defun claude-code-worktree (&optional arg)
+  "Start Claude in a new git worktree for isolated editing.
+
+Passes --worktree to the Claude CLI, which handles worktree creation
+and cleanup.  Prompts for an optional worktree name; generates one
+automatically if left empty.  Sets the buffer's `default-directory'
+to the worktree path so Emacs commands operate in the right directory.
+
+With prefix ARG (\\[universal-argument]), switch to buffer after creating.
+
+With double prefix ARG (\\[universal-argument] \\[universal-argument]),
+prompt for the project directory."
+  (interactive "P")
+  (let* ((git-root (claude-code--git-root))
+         (_ (unless git-root (error "Not in a git repository")))
+         (name (read-string "Worktree name (empty for auto): "))
+         ;; Generate a name if empty so we always know the path
+         (wt-name (if (string-empty-p name)
+                      (format-time-string "wt-%Y%m%d-%H%M%S")
+                    name))
+         (extra-switches (list "--worktree" wt-name))
+         (worktree-path (file-name-as-directory
+                         (expand-file-name
+                          (concat ".claude/worktrees/" wt-name)
+                          git-root)))
+         ;; Start Claude — CLI creates the worktree via --worktree
+         (buffer (claude-code--start arg extra-switches)))
+    ;; Update buffer to reference the worktree directory
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (setq default-directory worktree-path)
+        (setq claude-code--worktree-path worktree-path)
+        (add-hook 'kill-buffer-hook
+                  #'claude-code--maybe-cleanup-worktree nil t)))))
 
 ;;;###autoload
 (defun claude-code-sandbox (&optional arg)
