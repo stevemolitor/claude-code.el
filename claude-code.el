@@ -1582,7 +1582,7 @@ With double prefix ARG (\\[universal-argument] \\[universal-argument]), prompt f
           (set-window-parameter window 'no-delete-other-windows claude-code-no-delete-other-windows)
           ;; Optionally select the window based on user preference
           (when claude-code-toggle-auto-select
-            (select-window window)))))
+            (pop-to-buffer buffer)))))
 
     ;; switch to the Claude buffer if asked to
     (when switch-after
@@ -1954,7 +1954,7 @@ If the Claude buffer doesn't exist, create it."
             (set-window-parameter window 'no-delete-other-windows claude-code-no-delete-other-windows)
             ;; Optionally select the window based on user preference
             (when claude-code-toggle-auto-select
-              (select-window window))))
+              (pop-to-buffer claude-code-buffer))))
       (claude-code--show-not-running-message))))
 
 ;;;###autoload
