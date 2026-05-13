@@ -969,7 +969,7 @@ _BACKEND is the terminal backend type (should be \\='vterm)."
 
 ;; Declare external variables and functions from ghostel package
 (defvar ghostel--process)
-(defvar ghostel--copy-mode-active)
+(defvar ghostel--input-mode)
 (defvar ghostel-kill-buffer-on-exit)
 (defvar ghostel-set-title-function)
 (declare-function ghostel-exec "ghostel")
@@ -1021,7 +1021,7 @@ BUFFER is the terminal buffer containing the process to kill."
 
 _BACKEND is the terminal backend type (should be \\='ghostel)."
   (claude-code--ensure-ghostel)
-  (unless ghostel--copy-mode-active
+  (unless (eq ghostel--input-mode 'copy)
     (ghostel-copy-mode)))
 
 (cl-defmethod claude-code--term-interactive-mode ((_backend (eql ghostel)))
@@ -1029,7 +1029,7 @@ _BACKEND is the terminal backend type (should be \\='ghostel)."
 
 _BACKEND is the terminal backend type (should be \\='ghostel)."
   (claude-code--ensure-ghostel)
-  (when ghostel--copy-mode-active
+  (when (eq ghostel--input-mode 'copy)
     (ghostel-copy-mode-exit)
     ;; Re-setup keymap since ghostel-copy-mode-exit restores the saved keymap
     (claude-code--term-setup-keymap 'ghostel)))
@@ -1038,7 +1038,7 @@ _BACKEND is the terminal backend type (should be \\='ghostel)."
   "Check if ghostel terminal is in read-only mode.
 
 _BACKEND is the terminal backend type (should be \\='ghostel)."
-  ghostel--copy-mode-active)
+  (eq ghostel--input-mode 'copy))
 
 (defun claude-code--ghostel-bell-handler ()
   "Handle bell from ghostel terminal by triggering Claude notification."
