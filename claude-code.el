@@ -969,14 +969,16 @@ _BACKEND is the terminal backend type (should be \\='vterm)."
 
 ;; Declare external variables and functions from ghostel package
 (defvar ghostel--process)
-(defvar ghostel--copy-mode-active)
+(defvar ghostel--copy-mode-active)  ; removed in ghostel >= 0.22.0, kept for compat
+(defvar ghostel--input-mode)        ; added in ghostel >= 0.22.0
 (defvar ghostel-kill-buffer-on-exit)
 (defvar ghostel-set-title-function)
 (declare-function ghostel-exec "ghostel")
 (declare-function ghostel-send-string "ghostel")
 (declare-function ghostel-send-key "ghostel")
 (declare-function ghostel-copy-mode "ghostel")
-(declare-function ghostel-copy-mode-exit "ghostel")
+(declare-function ghostel-copy-mode-exit "ghostel")   ; removed in ghostel >= 0.22.0
+(declare-function ghostel-readonly-exit "ghostel")    ; added in ghostel >= 0.22.0
 (declare-function ghostel--window-adjust-process-window-size "ghostel")
 
 ;; Helper to ensure ghostel is loaded
@@ -1016,12 +1018,20 @@ BUFFER is the terminal buffer containing the process to kill."
         (kill-process ghostel--process)))
     (kill-buffer buffer)))
 
+(defun claude-code--ghostel-in-copy-mode-p ()
+  "Return non-nil if ghostel terminal is in copy/read-only mode.
+Supports both ghostel >= 0.22.0 (ghostel--input-mode) and older versions
+(ghostel--copy-mode-active)."
+  (if (boundp 'ghostel--input-mode)
+      (memq ghostel--input-mode '(copy emacs))
+    (bound-and-true-p ghostel--copy-mode-active)))
+
 (cl-defmethod claude-code--term-read-only-mode ((_backend (eql ghostel)))
   "Switch ghostel terminal to read-only mode.
 
 _BACKEND is the terminal backend type (should be \\='ghostel)."
   (claude-code--ensure-ghostel)
-  (unless ghostel--copy-mode-active
+  (unless (claude-code--ghostel-in-copy-mode-p)
     (ghostel-copy-mode)))
 
 (cl-defmethod claude-code--term-interactive-mode ((_backend (eql ghostel)))
@@ -1029,16 +1039,18 @@ _BACKEND is the terminal backend type (should be \\='ghostel)."
 
 _BACKEND is the terminal backend type (should be \\='ghostel)."
   (claude-code--ensure-ghostel)
-  (when ghostel--copy-mode-active
-    (ghostel-copy-mode-exit)
-    ;; Re-setup keymap since ghostel-copy-mode-exit restores the saved keymap
+  (when (claude-code--ghostel-in-copy-mode-p)
+    (if (fboundp 'ghostel-readonly-exit)
+        (ghostel-readonly-exit)               ; ghostel >= 0.22.0
+      (ghostel-copy-mode-exit))               ; ghostel < 0.22.0
+    ;; Re-setup keymap since exit restores the saved keymap
     (claude-code--term-setup-keymap 'ghostel)))
 
 (cl-defmethod claude-code--term-in-read-only-p ((_backend (eql ghostel)))
   "Check if ghostel terminal is in read-only mode.
 
 _BACKEND is the terminal backend type (should be \\='ghostel)."
-  ghostel--copy-mode-active)
+  (claude-code--ghostel-in-copy-mode-p))
 
 (defun claude-code--ghostel-bell-handler ()
   "Handle bell from ghostel terminal by triggering Claude notification."
