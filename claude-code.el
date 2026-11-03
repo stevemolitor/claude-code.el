@@ -727,6 +727,9 @@ _BACKEND is the terminal backend type (should be \\='eat)."
     ;; C-g for escape
     (define-key map (kbd "C-g") #'claude-code-send-escape)
 
+    ;; C-x C-s for Claude's "send now" (Emacs otherwise keeps C-x)
+    (define-key map (kbd "C-x C-s") #'claude-code-send-now)
+
     ;; Configure key bindings based on user preference
     (pcase claude-code-newline-keybinding-style
       ('newline-on-shift-return
@@ -941,6 +944,9 @@ _BACKEND is the terminal backend type (should be \\='vterm)."
     ;; C-g for escape
     (define-key map (kbd "C-g") #'claude-code--vterm-send-escape)
 
+    ;; C-x C-s for Claude's "send now" (Emacs otherwise keeps C-x)
+    (define-key map (kbd "C-x C-s") #'claude-code-send-now)
+
     (pcase claude-code-newline-keybinding-style
       ('newline-on-shift-return
        ;; S-return enters a line break, RET sends the command
@@ -1096,6 +1102,9 @@ _BACKEND is the terminal backend type (should be \\='ghostel)."
 
     ;; C-g for escape
     (define-key map (kbd "C-g") #'claude-code--ghostel-send-escape)
+
+    ;; C-x C-s for Claude's "send now" (Emacs otherwise keeps C-x)
+    (define-key map (kbd "C-x C-s") #'claude-code-send-now)
 
     ;; Configure key bindings based on user preference
     (pcase claude-code-newline-keybinding-style
@@ -2127,6 +2136,25 @@ having to switch to the REPL buffer."
   (interactive)
   (claude-code--with-buffer
    (claude-code--term-send-string claude-code-terminal-backend (kbd "ESC"))))
+
+;;;###autoload
+(defun claude-code-send-now ()
+  "Send Claude Code's \"send now\" key to the REPL.
+
+Claude Code queues a message submitted while it is still responding.
+Its \"send now\" key, ctrl+x ctrl+s, sends the queued message right away
+instead of waiting for the current response to finish.  Emacs reserves
+ctrl+x as a prefix key, so typing that sequence in a Claude buffer would
+run `save-buffer' instead of reaching Claude.  Claude buffers therefore
+bind it to this command.
+
+In a Claude buffer, send the key to that buffer; elsewhere, send it to
+the Claude buffer for the current project."
+  (interactive)
+  (if (claude-code--buffer-p (current-buffer))
+      (claude-code--term-send-string claude-code-terminal-backend "\C-x\C-s")
+    (claude-code--with-buffer
+     (claude-code--term-send-string claude-code-terminal-backend "\C-x\C-s"))))
 
 ;;;###autoload
 (defun claude-code-send-file (file-path)

@@ -249,7 +249,7 @@ This allows you to have separate Claude conversations for different aspects of y
 
 claude-code.el is designed to support using Claude Code in Emacs using the minibuffer and regular Emacs buffers, with normal keybindings and full Emacs editing facilities. However, claude-code.el also adds a few niceties for working in the Claude Code terminal buffer:
 
-You can type `C-g` as an alternative to escape. Also claude-code.el supports several options for
+You can type `C-g` as an alternative to escape, and `C-x C-s` to send a queued message now (Claude Code's "send now" key, which Emacs would otherwise treat as `save-buffer`). Also claude-code.el supports several options for
 entering newlines in the Claude Code session:
 
 - **Default (newline-on-shift-return)**: Press `Shift-Return` to insert a newline, `Return` to send your message
@@ -285,6 +285,7 @@ You can change this behavior by customizing `claude-code-newline-keybinding-styl
 
 - `claude-code-send-return` (`C-c c y`) - Send return key to Claude (useful for confirming with Claude without switching to the Claude REPL buffer) (useful for responding with "Yes"  to Claude)
 - `claude-code-send-escape` (`C-c c n`) - Send escape key to Claude (useful for saying "No" when Claude asks for confirmation without switching to the Claude REPL buffer)
+- `claude-code-send-now` (`C-x C-s` in the Claude buffer) - Send a message queued while Claude is responding right away, instead of waiting for the response to finish
 - `claude-code-send-1` (`C-c c 1`) - Send "1" to Claude (useful for selecting the first option when Claude presents a numbered menu)
 - `claude-code-send-2` (`C-c c 2`) - Send "2" to Claude (useful for selecting the second option when Claude presents a numbered menu)
 - `claude-code-send-3` (`C-c c 3`) - Send "3" to Claude (useful for selecting the third option when Claude presents a numbered menu)
